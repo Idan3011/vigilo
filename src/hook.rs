@@ -425,3 +425,222 @@ fn normalize_cursor_model(model: &str) -> String {
         _ => model.to_string(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detect_client_cursor_has_conversation_id() {
+        let payload = serde_json::json!({ "conversation_id": "abc-123" });
+        assert!(matches!(detect_client(&payload), HookClient::Cursor));
+    }
+
+    #[test]
+    fn detect_client_claude_code_without_conversation_id() {
+        let payload = serde_json::json!({ "tool_name": "Read" });
+        assert!(matches!(detect_client(&payload), HookClient::ClaudeCode));
+    }
+
+    #[test]
+    fn parse_claude_tool_extracts_name_and_args() {
+        let payload = serde_json::json!({
+            "tool_name": "Read",
+            "tool_input": { "file_path": "src/foo.rs" }
+        });
+        let (name, args) = parse_claude_tool(&payload);
+        assert_eq!(name, "Read");
+        assert_eq!(args["file_path"], "src/foo.rs");
+    }
+
+    #[test]
+    fn parse_claude_tool_strips_content_from_write() {
+        let payload = serde_json::json!({
+            "tool_name": "Write",
+            "tool_input": { "file_path": "src/foo.rs", "content": "big blob" }
+        });
+        let (name, args) = parse_claude_tool(&payload);
+        assert_eq!(name, "Write");
+        assert!(args.get("content").is_none());
+        assert_eq!(args["file_path"], "src/foo.rs");
+    }
+
+    #[test]
+    fn parse_claude_tool_strips_content_from_write_file() {
+        let payload = serde_json::json!({
+            "tool_name": "write_file",
+            "tool_input": { "file_path": "src/foo.rs", "content": "big blob" }
+        });
+        let (_, args) = parse_claude_tool(&payload);
+        assert!(args.get("content").is_none());
+    }
+
+    #[test]
+    fn claude_session_id_from_transcript_path() {
+        let payload = serde_json::json!({ "transcript_path": "transcripts/session.jsonl" });
+        let id1 = claude_session_id(&payload);
+        let id2 = claude_session_id(&payload);
+        assert_eq!(id1, id2);
+    }
+
+    #[test]
+    fn claude_session_id_from_session_id_field() {
+        let payload = serde_json::json!({ "session_id": "my-session" });
+        let id = claude_session_id(&payload);
+        assert_ne!(id, Uuid::nil());
+    }
+
+    #[test]
+    fn build_claude_outcome_ok() {
+        let response = serde_json::json!({ "content": [{ "text": "hello" }] });
+        let outcome = build_claude_outcome(&response);
+        assert!(matches!(outcome, Outcome::Ok { .. }));
+    }
+
+    #[test]
+    fn build_claude_outcome_error_via_is_error() {
+        let response = serde_json::json!({ "is_error": true, "content": [{ "text": "fail" }] });
+        let outcome = build_claude_outcome(&response);
+        assert!(matches!(outcome, Outcome::Err { .. }));
+    }
+
+    #[test]
+    fn build_claude_outcome_error_via_success_false() {
+        let response = serde_json::json!({ "success": false, "error": "bad" });
+        let outcome = build_claude_outcome(&response);
+        assert!(matches!(outcome, Outcome::Err { .. }));
+    }
+
+    #[test]
+    fn cursor_cwd_from_cwd_field() {
+        let payload = serde_json::json!({ "cwd": "workspace/my-project" });
+        assert_eq!(cursor_cwd(&payload), "workspace/my-project");
+    }
+
+    #[test]
+    fn cursor_cwd_from_workspace_roots() {
+        let payload = serde_json::json!({ "workspace_roots": ["workspace/other"] });
+        assert_eq!(cursor_cwd(&payload), "workspace/other");
+    }
+
+    #[test]
+    fn cursor_cwd_fallback_to_dot() {
+        let payload = serde_json::json!({});
+        assert_eq!(cursor_cwd(&payload), ".");
+    }
+
+    #[test]
+    fn parse_cursor_event_shell_execution() {
+        let payload = serde_json::json!({ "command": "ls -la" });
+        let (tool, args, risk, diff) = parse_cursor_event(&payload, "beforeShellExecution");
+        assert_eq!(tool, "Bash");
+        assert_eq!(args["command"], "ls -la");
+        assert_eq!(risk, Risk::Exec);
+        assert!(diff.is_none());
+    }
+
+    #[test]
+    fn parse_cursor_event_read_file() {
+        let payload = serde_json::json!({ "file_path": "src/main.rs" });
+        let (tool, args, risk, _) = parse_cursor_event(&payload, "beforeReadFile");
+        assert_eq!(tool, "Read");
+        assert_eq!(args["file_path"], "src/main.rs");
+        assert_eq!(risk, Risk::Read);
+    }
+
+    #[test]
+    fn parse_cursor_event_mcp_execution() {
+        let payload = serde_json::json!({
+            "tool_name": "git_status",
+            "tool_input": { "path": "my-repo" }
+        });
+        let (tool, args, risk, _) = parse_cursor_event(&payload, "beforeMCPExecution");
+        assert_eq!(tool, "git_status");
+        assert_eq!(args["path"], "my-repo");
+        assert_eq!(risk, Risk::Read);
+    }
+
+    #[test]
+    fn parse_cursor_post_tool_use_strips_mcp_prefix() {
+        let payload = serde_json::json!({
+            "tool_name": "MCP:git_status",
+            "tool_input": { "path": "my-repo" }
+        });
+        let (tool, args, risk, _) = parse_cursor_post_tool_use(&payload);
+        assert_eq!(tool, "git_status");
+        assert_eq!(args["path"], "my-repo");
+        assert_eq!(risk, Risk::Read);
+    }
+
+    #[test]
+    fn parse_cursor_post_tool_use_canonicalizes_shell() {
+        let payload = serde_json::json!({
+            "tool_name": "Shell",
+            "tool_input": { "command": "echo hi" }
+        });
+        let (tool, _, risk, _) = parse_cursor_post_tool_use(&payload);
+        assert_eq!(tool, "Bash");
+        assert_eq!(risk, Risk::Exec);
+    }
+
+    #[test]
+    fn parse_cursor_post_tool_use_strips_content() {
+        let payload = serde_json::json!({
+            "tool_name": "Write",
+            "tool_input": { "file_path": "src/lib.rs", "content": "big" }
+        });
+        let (tool, args, _, _) = parse_cursor_post_tool_use(&payload);
+        assert_eq!(tool, "Edit");
+        assert!(args.get("content").is_none());
+    }
+
+    #[test]
+    fn parse_cursor_post_tool_use_falls_back_to_arguments() {
+        let payload = serde_json::json!({
+            "tool_name": "Read",
+            "arguments": { "file_path": "src/lib.rs" }
+        });
+        let (_, args, _, _) = parse_cursor_post_tool_use(&payload);
+        assert_eq!(args["file_path"], "src/lib.rs");
+    }
+
+    #[test]
+    fn parse_cursor_file_edit_with_diff() {
+        let payload = serde_json::json!({
+            "file_path": "/src/lib.rs",
+            "edits": [
+                { "old_string": "hello", "new_string": "world" }
+            ]
+        });
+        let (tool, args, risk, diff) = parse_cursor_file_edit(&payload);
+        assert_eq!(tool, "Edit");
+        assert_eq!(args["file_path"], "/src/lib.rs");
+        assert_eq!(risk, Risk::Write);
+        assert!(diff.is_some());
+        let d = diff.unwrap();
+        assert!(d.contains("-hello"));
+        assert!(d.contains("+world"));
+    }
+
+    #[test]
+    fn parse_cursor_event_unknown_passthrough() {
+        let payload = serde_json::json!({ "foo": "bar" });
+        let (tool, _, risk, _) = parse_cursor_event(&payload, "customEvent");
+        assert_eq!(tool, "customEvent");
+        assert_eq!(risk, Risk::Unknown);
+    }
+
+    #[test]
+    fn normalize_cursor_model_default_becomes_auto() {
+        assert_eq!(normalize_cursor_model("default"), "Auto");
+        assert_eq!(normalize_cursor_model("auto"), "Auto");
+    }
+
+    #[test]
+    fn normalize_cursor_model_passes_through() {
+        assert_eq!(
+            normalize_cursor_model("claude-3.5-sonnet"),
+            "claude-3.5-sonnet"
+        );
+    }
+}

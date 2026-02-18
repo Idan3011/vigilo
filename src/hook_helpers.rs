@@ -227,3 +227,257 @@ fn has_tool_result_id(content: &serde_json::Value, id: &str) -> bool {
         })
         .unwrap_or(false)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stable_uuid_is_deterministic() {
+        let a = stable_uuid("same-input");
+        let b = stable_uuid("same-input");
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn stable_uuid_differs_for_different_input() {
+        let a = stable_uuid("input-a");
+        let b = stable_uuid("input-b");
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn resolve_git_dir_from_file_path_for_read() {
+        let tmp = tempfile::tempdir().unwrap();
+        let file = tmp.path().join("main.rs");
+        std::fs::write(&file, "").unwrap();
+        let file_str = file.to_str().unwrap();
+        let args = serde_json::json!({ "file_path": file_str });
+        let dir = resolve_git_dir("Read", &args, "/fallback");
+        assert_eq!(dir, tmp.path().to_str().unwrap());
+    }
+
+    #[test]
+    fn resolve_git_dir_from_path_for_grep() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir_path = tmp.path().to_str().unwrap();
+        let args = serde_json::json!({ "path": dir_path });
+        let dir = resolve_git_dir("Grep", &args, "/fallback");
+        assert_eq!(dir, dir_path);
+    }
+
+    #[test]
+    fn resolve_git_dir_falls_back_to_cwd() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cwd = tmp.path().to_str().unwrap();
+        let args = serde_json::json!({});
+        let dir = resolve_git_dir("Bash", &args, cwd);
+        assert_eq!(dir, cwd);
+    }
+
+    #[test]
+    fn resolve_git_dir_generic_tool_checks_file_path_first() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sub = tmp.path().join("sub");
+        std::fs::create_dir(&sub).unwrap();
+        let file = sub.join("c.txt");
+        std::fs::write(&file, "").unwrap();
+        let file_str = file.to_str().unwrap();
+        let args = serde_json::json!({ "file_path": file_str, "path": "/x/y" });
+        let dir = resolve_git_dir("SomeTool", &args, "/fallback");
+        assert_eq!(dir, sub.to_str().unwrap());
+    }
+
+    #[test]
+    fn compute_edit_diff_returns_none_for_non_edit() {
+        let args = serde_json::json!({ "old_string": "a", "new_string": "b" });
+        assert!(compute_edit_diff("Read", &args).is_none());
+        assert!(compute_edit_diff("Bash", &args).is_none());
+    }
+
+    #[test]
+    fn compute_edit_diff_returns_diff_for_edit() {
+        let args = serde_json::json!({ "old_string": "hello\n", "new_string": "world\n" });
+        let diff = compute_edit_diff("Edit", &args);
+        assert!(diff.is_some());
+        let d = diff.unwrap();
+        assert!(d.contains("-hello"));
+        assert!(d.contains("+world"));
+    }
+
+    #[test]
+    fn compute_edit_diff_works_for_multi_edit() {
+        let args = serde_json::json!({ "old_string": "a\n", "new_string": "b\n" });
+        assert!(compute_edit_diff("MultiEdit", &args).is_some());
+    }
+
+    #[test]
+    fn extract_error_message_from_content_text() {
+        let response = serde_json::json!({
+            "content": [{ "text": "file not found" }]
+        });
+        assert_eq!(extract_error_message(&response), "file not found");
+    }
+
+    #[test]
+    fn extract_error_message_from_error_field() {
+        let response = serde_json::json!({ "error": "permission denied" });
+        assert_eq!(extract_error_message(&response), "permission denied");
+    }
+
+    #[test]
+    fn extract_error_message_fallback() {
+        let response = serde_json::json!({});
+        assert_eq!(extract_error_message(&response), "error");
+    }
+
+    #[test]
+    fn has_tool_use_id_finds_match() {
+        let content = serde_json::json!([
+            { "type": "tool_use", "id": "tu_123", "name": "Read" }
+        ]);
+        assert!(has_tool_use_id(&content, "tu_123"));
+    }
+
+    #[test]
+    fn has_tool_use_id_no_match() {
+        let content = serde_json::json!([
+            { "type": "tool_use", "id": "tu_999", "name": "Read" }
+        ]);
+        assert!(!has_tool_use_id(&content, "tu_123"));
+    }
+
+    #[test]
+    fn has_tool_use_id_non_array_returns_false() {
+        let content = serde_json::json!("not an array");
+        assert!(!has_tool_use_id(&content, "tu_123"));
+    }
+
+    #[test]
+    fn has_tool_result_id_finds_match() {
+        let content = serde_json::json!([
+            { "type": "tool_result", "tool_use_id": "tu_123", "content": "ok" }
+        ]);
+        assert!(has_tool_result_id(&content, "tu_123"));
+    }
+
+    #[test]
+    fn has_tool_result_id_no_match() {
+        let content = serde_json::json!([
+            { "type": "tool_result", "tool_use_id": "tu_999" }
+        ]);
+        assert!(!has_tool_result_id(&content, "tu_123"));
+    }
+
+    #[test]
+    fn parse_timestamp_micros_valid() {
+        let v = serde_json::json!({ "timestamp": "2026-02-18T12:00:00Z" });
+        let us = parse_timestamp_micros(&v);
+        assert!(us.is_some());
+        assert!(us.unwrap() > 0);
+    }
+
+    #[test]
+    fn parse_timestamp_micros_invalid() {
+        let v = serde_json::json!({ "timestamp": "not-a-date" });
+        assert!(parse_timestamp_micros(&v).is_none());
+    }
+
+    #[test]
+    fn parse_timestamp_micros_missing() {
+        let v = serde_json::json!({});
+        assert!(parse_timestamp_micros(&v).is_none());
+    }
+
+    #[test]
+    fn scan_transcript_usage_extracts_model_and_tokens() {
+        use std::io::Write;
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        let line = serde_json::json!({
+            "type": "assistant",
+            "message": {
+                "model": "claude-sonnet-4-20250514",
+                "stop_reason": "end_turn",
+                "usage": {
+                    "input_tokens": 1000,
+                    "output_tokens": 500,
+                    "cache_read_input_tokens": 200,
+                    "cache_creation_input_tokens": 50
+                }
+            }
+        });
+        writeln!(tmp, "{}", serde_json::to_string(&line).unwrap()).unwrap();
+        tmp.flush().unwrap();
+
+        let mut file = std::fs::File::open(tmp.path()).unwrap();
+        let size = file.metadata().unwrap().len();
+        let meta = scan_transcript_usage(&mut file, size);
+
+        assert_eq!(meta.model.as_deref(), Some("claude-sonnet-4-20250514"));
+        assert_eq!(meta.input_tokens, Some(1000));
+        assert_eq!(meta.output_tokens, Some(500));
+        assert_eq!(meta.cache_read_tokens, Some(200));
+        assert_eq!(meta.cache_write_tokens, Some(50));
+        assert_eq!(meta.stop_reason.as_deref(), Some("end_turn"));
+    }
+
+    #[test]
+    fn scan_transcript_usage_skips_non_assistant() {
+        use std::io::Write;
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        let line = serde_json::json!({
+            "type": "user",
+            "message": { "model": "should-be-ignored" }
+        });
+        writeln!(tmp, "{}", serde_json::to_string(&line).unwrap()).unwrap();
+        tmp.flush().unwrap();
+
+        let mut file = std::fs::File::open(tmp.path()).unwrap();
+        let size = file.metadata().unwrap().len();
+        let meta = scan_transcript_usage(&mut file, size);
+
+        assert!(meta.model.is_none());
+    }
+
+    #[test]
+    fn read_transcript_meta_returns_default_for_missing_file() {
+        let meta = read_transcript_meta("/nonexistent/path/transcript.jsonl", None);
+        assert!(meta.model.is_none());
+        assert!(meta.duration_us.is_none());
+    }
+
+    #[test]
+    fn compute_tool_duration_from_transcript() {
+        use std::io::Write;
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+
+        let invoke = serde_json::json!({
+            "type": "assistant",
+            "timestamp": "2026-02-18T12:00:00.000000Z",
+            "message": {
+                "content": [
+                    { "type": "tool_use", "id": "tu_abc", "name": "Read" }
+                ]
+            }
+        });
+        let result = serde_json::json!({
+            "type": "user",
+            "timestamp": "2026-02-18T12:00:01.500000Z",
+            "message": {
+                "content": [
+                    { "type": "tool_result", "tool_use_id": "tu_abc", "content": "ok" }
+                ]
+            }
+        });
+        writeln!(tmp, "{}", serde_json::to_string(&invoke).unwrap()).unwrap();
+        writeln!(tmp, "{}", serde_json::to_string(&result).unwrap()).unwrap();
+        tmp.flush().unwrap();
+
+        let mut file = std::fs::File::open(tmp.path()).unwrap();
+        let size = file.metadata().unwrap().len();
+        let duration = compute_tool_duration(&mut file, size, "tu_abc");
+
+        assert!(duration.is_some());
+        assert_eq!(duration.unwrap(), 1_500_000);
+    }
+}
