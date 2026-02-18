@@ -445,3 +445,7 @@ src/
 - **Non-blocking** — ledger failures log to stderr; tool responses are never delayed
 - **Witness, not judge** — records what happened; enforces no policies, blocks nothing
 - **Shape is transparent, content is private** — timing, risk, and git context are always plaintext; file contents are optionally encrypted
+
+## License
+
+[MIT](LICENSE)
