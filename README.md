@@ -4,15 +4,13 @@
 
 > Every tool call your AI agent makes — logged, timed, diff'd. Nothing sent anywhere.
 
-AI coding agents read files, write code, run commands, and commit to git on your behalf. **vigilo** gives you a complete, queryable record of everything they do — without changing how they work or what they can do.
-
-Works with **Claude Code** and **Cursor**. Runs as a standard [MCP](https://modelcontextprotocol.io/) server plus lightweight hooks for built-in tools. Every call is recorded to a local append-only ledger with risk level, timing, git context, model, token usage, and — for file writes — a unified diff of what changed.
-
-No network calls. No accounts. No SaaS. Everything stays on your machine.
+AI coding agents read files, write code, run commands, and commit to git on your behalf. **vigilo** gives you a complete, queryable record of everything they do — without changing how they work or what they can do. Works with **Claude Code** and **Cursor**.
 
 ---
 
 ## What it looks like
+
+![vigilo demo](docs/demo.gif)
 
 ### `vigilo view`
 
@@ -40,10 +38,6 @@ No network calls. No accounts. No SaaS. Everything stays on your machine.
     tokens: 71K in · 5K out · cache: 905K read · $0.35 (2 reqs)
 ```
 
-Long sessions auto-collapse to the first 5 + last 5 events. Use `--expand` to see everything.
-
-Sessions are sorted by last activity. Claude costs show `~` (estimated from public API list pricing, not your actual bill). Cursor costs come directly from cursor.com billing and are exact.
-
 ### `vigilo stats`
 
 ```
@@ -66,11 +60,6 @@ Sessions are sorted by last activity. Claude costs show `~` (estimated from publ
   144× claude-sonnet-4-5   102 in · 23K out · ~$3.09
 
   total: 1K in · 56K out · ~$69.16 (list pricing)
-
-  projects
-  ────────
-  611× my-app          r:265 w:160 e:163
-  320× unknown         r:101 w:13  e:165
 ```
 
 ### `vigilo cursor-usage`
@@ -93,378 +82,49 @@ Sessions are sorted by last activity. Claude costs show `~` (estimated from publ
    20× composer-1.5        135K in · 26K out  · cache:5.6M  · $2.21
 ```
 
-Fetches real per-request token usage directly from cursor.com. Cached locally so `vigilo view` can enrich Cursor sessions with model, tokens, and cost.
+---
+
+## How it works
+
+vigilo runs as a local [MCP](https://modelcontextprotocol.io/) server over **stdio**. There is no network listener, no open port, no daemon. The AI agent (Claude Code or Cursor) spawns vigilo as a child process — the same way it would spawn any MCP server.
+
+When the agent makes a tool call through MCP, vigilo logs the event to `~/.vigilo/events.jsonl` (tool name, arguments, result, timing, risk level, git context, diffs) and then executes it locally. The agent sees no difference.
+
+Some tools are built into the agent and bypass MCP entirely (Claude Code's Read, Write, Bash, Edit, etc.). For these, a lightweight **PostToolUse hook** pipes the event to `vigilo hook` via stdin after the tool completes. Same logging, zero overhead on execution.
+
+**Nothing leaves your machine.** No telemetry, no phoning home, no accounts, no SaaS. The only exception is `vigilo cursor-usage`, which makes opt-in HTTPS requests to cursor.com to fetch your token usage — using your existing local Cursor credentials.
+
+**Encryption at rest is optional.** Metadata (tool name, risk level, timing, git context) is always plaintext so you can always see the shape of what happened. Content (file paths, arguments, results) can be encrypted with AES-256-GCM if you work on sensitive codebases.
 
 ---
 
-## Installation
+## Install
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/Idan3011/vigilo/main/install.sh | bash
 ```
 
-Downloads a pre-built binary for your platform (Linux x86_64, macOS x86_64/arm64). Falls back to building from source if no binary is available.
+Or from source: `cargo install --git https://github.com/Idan3011/vigilo.git`
 
-**From source** (requires [Rust](https://rustup.rs/)):
-
-```bash
-cargo install --git https://github.com/Idan3011/vigilo.git
-```
-
-**Development:**
-
-```bash
-git clone https://github.com/Idan3011/vigilo.git && cd vigilo
-cargo run -- doctor          # run from source, no install step
-cargo dev                    # build + install to ~/.cargo/bin
-```
-
----
-
-## Setup
-
-### Interactive setup (recommended)
+Then run the interactive setup:
 
 ```bash
 vigilo setup
 ```
 
-Auto-detects Claude Code and Cursor, configures MCP servers and hooks, optionally generates an encryption key, syncs Cursor token usage if available, and saves everything to `~/.vigilo/config`. Zero manual editing required.
+Auto-detects Claude Code and Cursor, configures MCP servers and hooks, optionally generates an encryption key, and saves everything to `~/.vigilo/config`.
 
-### Manual — Claude Code
-
-**1. MCP server** — add to `~/.claude.json`:
-
-```json
-{
-  "mcpServers": {
-    "vigilo": {
-      "command": "vigilo",
-      "type": "stdio"
-    }
-  }
-}
-```
-
-**2. Hook for built-in tools** — add to `~/.claude/settings.json`:
-
-Claude Code's built-in tools (Read, Write, Bash, Edit, etc.) don't go through MCP. A PostToolUse hook captures them too:
-
-```json
-{
-  "hooks": {
-    "PostToolUse": [{
-      "matcher": ".*",
-      "hooks": [{ "type": "command", "command": "vigilo hook" }]
-    }]
-  }
-}
-```
-
-### Manual — Cursor
-
-**1. MCP server** — add to `~/.cursor/mcp.json`:
-
-```json
-{
-  "mcpServers": {
-    "vigilo": {
-      "command": "vigilo"
-    }
-  }
-}
-```
-
-**2. Hooks for built-in tools** — add to `~/.cursor/hooks.json`:
-
-```json
-{
-  "version": 1,
-  "hooks": {
-    "beforeShellExecution": [{ "command": "vigilo hook" }],
-    "afterFileEdit":        [{ "command": "vigilo hook" }]
-  }
-}
-```
+For manual setup, see [docs/manual-setup.md](docs/manual-setup.md).
 
 ---
 
-## Subcommands
+## Documentation
 
-### Today at a glance
-
-```bash
-vigilo summary                            # sessions, calls, errors, tokens, cost — today only
-```
-
-```
-── today ───────────────────────────────────────
-
-  3 sessions · 127 calls · 0 errors · 42.1s
-  risk: 48 read · 39 write · 40 exec
-  tokens: 12K in · 3K out · cache: 89K read · ~$1.23
-  active: ai-observability · feature/render-deploy
-```
-
-### Session list
-
-```bash
-vigilo sessions                           # one line per session
-vigilo sessions --last 5                  # last 5 sessions
-vigilo sessions --since 1w               # sessions from the last week
-```
-
-```
-── 12 sessions ─────────────────────────────────
-
-  ░ CLAUDE ░  df66fc59  02-16 17:26  ai-observability     127 calls  42.1s
-  ░ CURSOR ░  a3b7e012  02-16 14:10  my-frontend           83 calls  18.3s
-```
-
-### Last N events
-
-```bash
-vigilo tail                               # last 20 events (flat, chronological)
-vigilo tail -n 50                         # last 50 events
-```
-
-```
-  02-16 17:27:01  ○ READ   Read     hook.rs              ░ CLAUDE ░  df66fc59
-  02-16 17:27:02  ◆ WRITE  Edit     hook.rs    +12 -3    ░ CLAUDE ░  df66fc59
-```
-
-### Viewing events
-
-```bash
-vigilo view                               # all sessions (first 5 + last 5 events each)
-vigilo view --last 5                      # last 5 sessions
-vigilo view --last 3 --expand             # last 3 sessions, all events shown
-vigilo view --risk exec                   # filter by risk: read | write | exec
-vigilo view --tool Bash                   # filter by tool name
-vigilo view --since 7d                    # last 7 days
-vigilo view --since 2026-02-01 --until yesterday
-```
-
-### Live tail
-
-```bash
-vigilo watch                              # see events as they happen
-```
-
-### Aggregate stats
-
-```bash
-vigilo stats                              # all-time stats
-vigilo stats --since 1m                   # last month
-vigilo stats --since 2026-02-01 --until 2026-02-15
-```
-
-### Errors
-
-```bash
-vigilo errors                             # errors grouped by tool, with recent list
-vigilo errors --since 1w                  # errors from the last week
-```
-
-### File diffs
-
-```bash
-vigilo diff --last 1                      # what files changed in the last session
-vigilo diff --since today                 # all diffs from today
-```
-
-### Filtered search
-
-```bash
-vigilo query --tool delete_file --since 1w   # what did the AI delete this week?
-vigilo query --risk exec --since 2d          # all shell commands, last 2 days
-vigilo query --session cd9b                  # events from a specific session
-```
-
-### Cursor token usage
-
-```bash
-vigilo cursor-usage                       # real token usage from cursor.com (30 days)
-vigilo cursor-usage --since-days 7        # last 7 days
-vigilo cursor-usage --sync                # fetch and cache without printing
-```
-
-Reads credentials from Cursor's local database. Auto-discovers the database path on macOS, Linux, Windows, and WSL. Cached token data enriches `vigilo view` for Cursor sessions.
-
-### Export
-
-```bash
-vigilo export                             # CSV to stdout
-vigilo export --format json               # full JSON array
-```
-
-### Health check
-
-```bash
-vigilo doctor                             # check configuration and dependencies
-```
-
-Validates ledger path, encryption key, config file, and Cursor database. Shows pass/fail/info for each check.
-
-### Other
-
-```bash
-vigilo generate-key                       # generate a base64 AES-256 encryption key
-vigilo setup                              # interactive setup wizard
-```
-
-**Date expressions** — `today`, `yesterday`, `7d`, `2w`, `1m`, or `YYYY-MM-DD`.
-
-**Global flags** — `--no-color` disables colored output (also respects `NO_COLOR` env).
-
----
-
-## Tools
-
-When running as an MCP server, vigilo exposes these tools to the AI agent:
-
-| Tool | Risk | Description |
-|---|---|---|
-| `read_file` | read | Read a file; supports `start_line` / `end_line` for large files |
-| `write_file` | write | Write content to a file; creates parent directories |
-| `list_directory` | read | List directory entries, sorted |
-| `create_directory` | write | Create a directory and any missing parents |
-| `delete_file` | write | Delete a file |
-| `move_file` | write | Move or rename a file or directory |
-| `search_files` | read | Recursive pattern search; supports `regex: true` |
-| `run_command` | exec | Run a shell command; returns stdout and stderr |
-| `get_file_info` | read | File/directory metadata (size, type, modified time) |
-| `patch_file` | write | Apply a unified diff patch to a file |
-| `git_status` | read | Working tree status |
-| `git_diff` | read | Unstaged (or `staged: true`) diff |
-| `git_log` | read | Recent commits, one-line format |
-| `git_commit` | write | Stage all changes and create a commit |
-
----
-
-## Configuration
-
-### Config file
-
-`~/.vigilo/config` — created by `vigilo setup`, applies to every session:
-
-```ini
-LEDGER=/home/user/.vigilo/events.jsonl
-CURSOR_DB=/home/user/.cursor-server/data/state.vscdb
-```
-
-### Environment variables
-
-Override the config file when set.
-
-| Variable | Default | Description |
-|---|---|---|
-| `VIGILO_LEDGER` | `~/.vigilo/events.jsonl` | Ledger file path |
-| `VIGILO_ENCRYPTION_KEY` | _(unset)_ | Base64 AES-256-GCM key; encrypts arguments and results at rest |
-| `VIGILO_TAG` | _(git branch)_ | Session label; overrides auto-derived branch name |
-| `VIGILO_TIMEOUT_SECS` | `30` | Max seconds per tool call before timeout |
-| `CURSOR_DATA_DIR` | _(auto-discovered)_ | Override Cursor database directory for `cursor-usage` |
-| `NO_COLOR` | _(unset)_ | Disable colored output (also `--no-color` flag) |
-
-### Encryption
-
-Arguments and results can be encrypted at rest with AES-256-GCM. Metadata (tool name, risk, timing, git context) is always plaintext — the shape of what happened is never hidden, only the content.
-
-```bash
-vigilo generate-key
-export VIGILO_ENCRYPTION_KEY=<output>
-```
-
-`vigilo view`, `query`, and `diff` decrypt automatically when the key is present.
-
----
-
-## Ledger format
-
-Append-only JSONL at `~/.vigilo/events.jsonl`. One event per line. Rotates at 10 MB, keeping up to 5 archived files.
-
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "timestamp": "2026-02-16T14:32:01.123Z",
-  "session_id": "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
-  "server": "vigilo",
-  "tool": "write_file",
-  "arguments": { "path": "/src/auth.rs", "content": "..." },
-  "outcome": { "status": "ok", "result": "wrote 2048 bytes" },
-  "duration_us": 1200,
-  "risk": "write",
-  "project": {
-    "root": "/projects/my-app",
-    "name": "my-app",
-    "branch": "feature/auth",
-    "commit": "23dbb5e",
-    "dirty": true
-  },
-  "model": "claude-opus-4-6",
-  "input_tokens": 65000,
-  "output_tokens": 270,
-  "cache_read_tokens": 162000,
-  "diff": "+fn authenticate(token: &str) -> bool {\n-fn auth(t: &str) -> bool {"
-}
-```
-
-| Field | Always present | Description |
-|---|---|---|
-| `id` | yes | Unique event UUID |
-| `timestamp` | yes | RFC 3339 timestamp |
-| `session_id` | yes | Groups all events from one session |
-| `server` | yes | `vigilo`, `claude-code`, or `cursor` |
-| `tool` | yes | Tool name |
-| `arguments` | yes | Tool input (encrypted if key is set) |
-| `outcome` | yes | `{status, result}` or `{status, code, message}` |
-| `duration_us` | yes | Execution time in microseconds |
-| `risk` | yes | `read` / `write` / `exec` / `unknown` |
-| `project` | yes | Git context (root, name, branch, commit, dirty) |
-| `model` | no | Model that made this call |
-| `input_tokens` | no | Cumulative input tokens at this point in the session |
-| `output_tokens` | no | Cumulative output tokens |
-| `cache_read_tokens` | no | Cache read tokens |
-| `diff` | no | Unified diff for write operations |
-| `tag` | no | Session label (auto-derived from branch) |
-
----
-
-## Architecture
-
-```
-src/
-├── main.rs            CLI entry: dispatches subcommands
-├── server/
-│   ├── mod.rs         MCP JSON-RPC server over stdio
-│   ├── execute.rs     Tool dispatch, ledger logging, encryption
-│   ├── tools.rs       14 tool implementations (fs, git, shell)
-│   └── schema.rs      Tool JSON schemas for tools/list
-├── view/
-│   ├── mod.rs         View entry point and shared helpers
-│   ├── stats.rs       Stats, errors, summary subcommands
-│   ├── counts.rs      Event aggregation and section printers
-│   ├── session.rs     Session list, detail, and tail views
-│   ├── search.rs      Query, diff, watch, CSV export
-│   ├── data.rs        Ledger loading and event filtering
-│   └── fmt.rs         Shared formatting (colors, duration, tokens)
-├── doctor.rs          Health check subcommand (vigilo doctor)
-├── hook.rs            Claude Code PostToolUse + Cursor hook processing
-├── hook_helpers.rs    Shared hook utilities (events, transcripts, diffs)
-├── models.rs          McpEvent, Outcome, Risk, ProjectContext
-├── ledger.rs          Append-only JSONL writer with 10MB rotation
-├── cursor_usage.rs    Cursor token usage via local DB + cursor.com API
-├── setup.rs           Interactive setup wizard
-├── git.rs             Async git helpers (root, name, branch, commit, dirty)
-└── crypto.rs          AES-256-GCM encryption/decryption
-```
-
-## Design principles
-
-- **Local only** — no network calls in the MCP server path; `cursor-usage` is opt-in
-- **Non-blocking** — ledger failures log to stderr; tool responses are never delayed
-- **Witness, not judge** — records what happened; enforces no policies, blocks nothing
-- **Shape is transparent, content is private** — timing, risk, and git context are always plaintext; file contents are optionally encrypted
+- [Command reference](docs/commands.md) — all subcommands, flags, and examples
+- [Configuration](docs/configuration.md) — config file, environment variables, encryption
+- [Ledger format](docs/ledger-format.md) — JSONL schema, field reference, rotation
+- [Architecture](docs/architecture.md) — source tree, design principles, development
+- [Manual setup](docs/manual-setup.md) — Claude Code and Cursor JSON snippets
 
 ## License
 
