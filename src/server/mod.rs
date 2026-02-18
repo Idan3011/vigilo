@@ -17,6 +17,7 @@ struct SessionCounters {
 
 pub async fn run(ledger_path: String, session_id: Uuid) -> Result<()> {
     let (project_root, project_name, tag, timeout_secs) = init_session().await;
+    let encryption_key = crate::crypto::load_key();
 
     if let Some(ref t) = tag {
         eprintln!("[vigilo] tag={t}");
@@ -39,6 +40,7 @@ pub async fn run(ledger_path: String, session_id: Uuid) -> Result<()> {
         &project_name,
         tag.as_deref(),
         timeout_secs,
+        encryption_key.as_ref(),
         &mut counters,
     )
     .await?;
@@ -78,6 +80,7 @@ async fn process_messages(
     project_name: &Option<String>,
     tag: Option<&str>,
     timeout_secs: u64,
+    encryption_key: Option<&[u8; 32]>,
     counters: &mut SessionCounters,
 ) -> Result<()> {
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
@@ -99,6 +102,7 @@ async fn process_messages(
             project_name,
             tag,
             timeout_secs,
+            encryption_key,
         )
         .await;
         if let Some(response) = response {
@@ -138,13 +142,15 @@ fn update_counters(
 }
 
 fn print_session_summary(session_id: Uuid, c: &SessionCounters, elapsed: u64) {
-    let sid = &session_id.to_string()[..8];
+    let full = session_id.to_string();
+    let sid = &full[..8];
     eprintln!(
         "[vigilo] session {sid} ended — {} calls  read:{} write:{} exec:{} errors:{}  {elapsed}s",
         c.total, c.reads, c.writes, c.execs, c.errors
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn dispatch(
     msg: &serde_json::Value,
     ledger_path: &str,
@@ -153,6 +159,7 @@ async fn dispatch(
     project_name: &Option<String>,
     tag: Option<&str>,
     timeout_secs: u64,
+    encryption_key: Option<&[u8; 32]>,
 ) -> Option<serde_json::Value> {
     let method = msg.get("method")?.as_str()?;
 
@@ -169,6 +176,7 @@ async fn dispatch(
                 project_name,
                 tag,
                 timeout_secs,
+                encryption_key,
             )
             .await,
         ),

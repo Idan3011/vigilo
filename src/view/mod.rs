@@ -1,6 +1,6 @@
 mod counts;
 mod data;
-mod fmt;
+pub(crate) mod fmt;
 mod search;
 mod session;
 mod stats;

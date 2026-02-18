@@ -22,6 +22,10 @@ pub(crate) fn client_badge(server: &str) -> String {
     }
 }
 
+pub(crate) fn short_id(id: &str) -> &str {
+    id.get(..8).unwrap_or(id)
+}
+
 pub(crate) fn short_path(full: &str, project_root: Option<&str>) -> String {
     if let Some(root) = project_root {
         let root_slash = if root.ends_with('/') {

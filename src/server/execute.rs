@@ -6,6 +6,7 @@ use chrono::Utc;
 use std::time::Instant;
 use uuid::Uuid;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) async fn on_tool_call(
     msg: &serde_json::Value,
     ledger_path: &str,
@@ -14,6 +15,7 @@ pub(super) async fn on_tool_call(
     project_name: &Option<String>,
     tag: Option<&str>,
     timeout_secs: u64,
+    encryption_key: Option<&[u8; 32]>,
 ) -> serde_json::Value {
     let (tool, arguments) = parse_tool_call(msg);
     let before_content = capture_before_content(&tool, &arguments).await;
@@ -28,7 +30,7 @@ pub(super) async fn on_tool_call(
     super::log_event(&tool, risk, duration_us, is_error);
 
     let (ledger_arguments, ledger_outcome, ledger_diff) =
-        encrypt_for_ledger(&arguments, &outcome, &diff);
+        encrypt_for_ledger(encryption_key, &arguments, &outcome, &diff);
     let project = resolve_project(&arguments, project_root, project_name).await;
 
     let event = build_event(
@@ -139,23 +141,42 @@ fn build_response(
 }
 
 fn encrypt_for_ledger(
+    encryption_key: Option<&[u8; 32]>,
     arguments: &serde_json::Value,
     outcome: &Outcome,
     diff: &Option<String>,
 ) -> (serde_json::Value, Outcome, Option<String>) {
-    if let Some(key) = crypto::load_key() {
-        let enc_args = serde_json::json!(crypto::encrypt(&key, &arguments.to_string()));
-        let enc_outcome = match outcome {
-            Outcome::Ok { result } => Outcome::Ok {
-                result: serde_json::json!(crypto::encrypt(&key, &result.to_string())),
+    let key = match encryption_key {
+        Some(k) => k,
+        None => return (arguments.clone(), outcome.clone(), diff.clone()),
+    };
+    let enc_args = match crypto::encrypt(key, &arguments.to_string()) {
+        Ok(s) => serde_json::json!(s),
+        Err(e) => {
+            eprintln!("[vigilo] encryption failed for arguments: {e}");
+            arguments.clone()
+        }
+    };
+    let enc_outcome = match outcome {
+        Outcome::Ok { result } => match crypto::encrypt(key, &result.to_string()) {
+            Ok(s) => Outcome::Ok {
+                result: serde_json::json!(s),
             },
-            Outcome::Err { .. } => outcome.clone(),
-        };
-        let enc_diff = diff.as_deref().map(|d| crypto::encrypt(&key, d));
-        (enc_args, enc_outcome, enc_diff)
-    } else {
-        (arguments.clone(), outcome.clone(), diff.clone())
-    }
+            Err(e) => {
+                eprintln!("[vigilo] encryption failed for result: {e}");
+                outcome.clone()
+            }
+        },
+        Outcome::Err { .. } => outcome.clone(),
+    };
+    let enc_diff = diff.as_deref().and_then(|d| match crypto::encrypt(key, d) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            eprintln!("[vigilo] encryption failed for diff: {e}");
+            None
+        }
+    });
+    (enc_args, enc_outcome, enc_diff)
 }
 
 async fn resolve_project(

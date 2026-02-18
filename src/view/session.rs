@@ -1,7 +1,7 @@
 use super::data::{cursor_session_tokens, load_sessions, LoadFilter};
 use super::fmt::{
     client_badge, diff_badge, fmt_arg, fmt_cost, fmt_tokens, normalize_model, risk_decorated,
-    risk_label, trunc, BOLD, BRIGHT_RED, CYAN, DIM, RESET,
+    risk_label, short_id, trunc, BOLD, BRIGHT_RED, CYAN, DIM, RESET,
 };
 use super::{ViewArgs, COLLAPSE_HEAD, COLLAPSE_TAIL};
 use crate::{
@@ -30,7 +30,9 @@ pub fn run(ledger_path: &str, args: ViewArgs) -> Result<()> {
     }
 
     for (sid, events) in &sessions {
-        let first = &events[0];
+        let Some(first) = events.first() else {
+            continue;
+        };
         let cursor_tokens = cursor_session_tokens(events);
         print_session_header(sid, first);
         print_session_events(
@@ -50,7 +52,7 @@ pub fn run(ledger_path: &str, args: ViewArgs) -> Result<()> {
 
 fn print_session_header(sid: &str, first: &McpEvent) {
     let badge = client_badge(&first.server);
-    let sid_short = &sid[..8];
+    let sid_short = short_id(sid);
     let ts_header = first
         .timestamp
         .get(5..16)
@@ -260,9 +262,11 @@ pub fn sessions(ledger_path: &str, args: ViewArgs) -> Result<()> {
 }
 
 fn print_session_list_row(sid: &str, events: &[McpEvent]) {
-    let first = &events[0];
+    let Some(first) = events.first() else {
+        return;
+    };
     let badge = client_badge(&first.server);
-    let sid_short = &sid[..8.min(sid.len())];
+    let sid_short = short_id(sid);
     let date = first
         .timestamp
         .get(5..16)

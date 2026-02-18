@@ -13,22 +13,15 @@ pub fn load_key() -> Option<[u8; 32]> {
     bytes.try_into().ok()
 }
 
-pub fn encrypt(key: &[u8; 32], plaintext: &str) -> String {
+pub fn encrypt(key: &[u8; 32], plaintext: &str) -> Result<String, aes_gcm::Error> {
     let cipher = Aes256Gcm::new(key.into());
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
-    match cipher.encrypt(nonce, plaintext.as_bytes()) {
-        Ok(ciphertext) => {
-            let mut payload = nonce_bytes.to_vec();
-            payload.extend_from_slice(&ciphertext);
-            format!("{PREFIX}{}", STANDARD.encode(payload))
-        }
-        Err(e) => {
-            eprintln!("[vigilo] encryption failed: {e}");
-            plaintext.to_string()
-        }
-    }
+    let ciphertext = cipher.encrypt(nonce, plaintext.as_bytes())?;
+    let mut payload = nonce_bytes.to_vec();
+    payload.extend_from_slice(&ciphertext);
+    Ok(format!("{PREFIX}{}", STANDARD.encode(payload)))
 }
 
 pub fn decrypt(key: &[u8; 32], ciphertext: &str) -> Option<String> {
@@ -64,7 +57,7 @@ mod tests {
     #[test]
     fn round_trip() {
         let key = test_key();
-        let ct = encrypt(&key, "hello world");
+        let ct = encrypt(&key, "hello world").unwrap();
         assert!(is_encrypted(&ct));
         assert_eq!(decrypt(&key, &ct).unwrap(), "hello world");
     }
@@ -72,7 +65,7 @@ mod tests {
     #[test]
     fn wrong_key_returns_none() {
         let key = test_key();
-        let ct = encrypt(&key, "secret");
+        let ct = encrypt(&key, "secret").unwrap();
         let wrong_key = [0u8; 32];
         assert!(decrypt(&wrong_key, &ct).is_none());
     }

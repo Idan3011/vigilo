@@ -2,15 +2,7 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 
-const RESET: &str = "\x1b[0m";
-const BOLD: &str = "\x1b[1m";
-const DIM: &str = "\x1b[2m";
-const CYAN: &str = "\x1b[36m";
-const GREEN: &str = "\x1b[32m";
-const RED: &str = "\x1b[31m";
-const YELLOW: &str = "\x1b[33m";
-const BG_MAGENTA: &str = "\x1b[45m";
-const WHITE: &str = "\x1b[97m";
+use crate::view::fmt::{BG_MAGENTA, BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW};
 
 #[derive(Debug, PartialEq)]
 enum Platform {
@@ -197,9 +189,12 @@ fn needs_local_copy(path: &str) -> bool {
 }
 
 fn copy_to_local(src: &str) -> Result<String> {
-    let dest = "/tmp/vigilo-cursor-state.vscdb";
-    std::fs::copy(src, dest).with_context(|| format!("failed to copy {src} → {dest}"))?;
-    Ok(dest.to_string())
+    let dest = format!("{}/.vigilo/cursor-state.vscdb", home_dir());
+    if let Some(parent) = std::path::Path::new(&dest).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::copy(src, &dest).with_context(|| format!("failed to copy {src} → {dest}"))?;
+    Ok(dest)
 }
 
 struct Credentials {

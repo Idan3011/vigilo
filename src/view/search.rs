@@ -1,7 +1,8 @@
 use super::data::{load_sessions, LoadFilter};
 use super::fmt::{
     client_badge, diff_badge, diff_summary, fmt_arg, maybe_decrypt, print_colored_diff,
-    risk_decorated, risk_label, short_path, trunc, BOLD, BRIGHT_RED, CYAN, DIM, GREEN, RED, RESET,
+    risk_decorated, risk_label, short_id, short_path, trunc, BOLD, BRIGHT_RED, CYAN, DIM, GREEN,
+    RED, RESET,
 };
 use super::ViewArgs;
 use crate::{
@@ -73,7 +74,8 @@ fn print_query_row(e: &McpEvent, key: Option<&[u8; 32]>) {
     } else {
         String::new()
     };
-    let sid_short = &e.session_id.to_string()[..8];
+    let sid_str = e.session_id.to_string();
+    let sid_short = short_id(&sid_str);
 
     println!(" {badge}  {DIM}{time}{RESET}  {risk_sym} {tool_name} {arg_display}{diff}{dur}{timeout}  {DIM}{sid_short}{RESET}");
 }
@@ -111,9 +113,11 @@ fn print_diff_session(sid: &str, events: &[McpEvent], key: Option<&[u8; 32]>) {
         return;
     }
 
-    let first = &events[0];
+    let Some(first) = events.first() else {
+        return;
+    };
     let badge = client_badge(&first.server);
-    let sid_short = &sid[..8];
+    let sid_short = short_id(sid);
     let project_root = first.project.root.as_deref();
 
     let mut by_file: Vec<(String, Vec<&McpEvent>)> = Vec::new();
@@ -275,7 +279,8 @@ fn print_csv(all_events: &[&McpEvent]) {
             .get(..19)
             .unwrap_or(&e.timestamp)
             .replace('T', " ");
-        let sid = &e.session_id.to_string()[..8];
+        let sid_str = e.session_id.to_string();
+        let sid = short_id(&sid_str);
         let project = e
             .project
             .name
