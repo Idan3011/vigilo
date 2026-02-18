@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::io::{self, Write};
 
-pub fn run() -> Result<()> {
+pub async fn run() -> Result<()> {
     println!("\nvigilo setup\n");
 
     let has_claude = detect_claude();
@@ -24,8 +24,21 @@ pub fn run() -> Result<()> {
     let cursor_db = setup_cursor_if_detected(has_cursor, &ledger)?;
 
     write_config(&ledger, encryption_key.as_deref(), cursor_db.as_deref())?;
+
+    if cursor_db.is_some() {
+        sync_cursor_usage().await;
+    }
+
     print_completion(encryption_key.as_deref());
     Ok(())
+}
+
+async fn sync_cursor_usage() {
+    println!("\n      Syncing Cursor token usage...");
+    match crate::cursor_usage::sync(30).await {
+        Ok(()) => {}
+        Err(e) => eprintln!("      {e}\n      You can retry later with: vigilo cursor-usage"),
+    }
 }
 
 fn print_detection(has_claude: bool, has_cursor: bool) {

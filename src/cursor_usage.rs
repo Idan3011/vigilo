@@ -330,6 +330,9 @@ async fn fetch_all_events(
     let mut all = Vec::new();
     let mut page = 1u32;
     let page_size = 100u32;
+    let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+    eprint!("  {DIM}{} fetching usage data...{RESET}", frames[0]);
 
     loop {
         let data = fetch_events(client, creds, start_ms, end_ms, page, page_size).await?;
@@ -338,6 +341,8 @@ async fn fetch_all_events(
             Some(arr) if !arr.is_empty() => {
                 all.extend(arr.iter().cloned());
                 let total = data["totalUsageEventsCount"].as_u64().unwrap_or(0);
+                let frame = frames[page as usize % frames.len()];
+                eprint!("\r  {DIM}{frame} fetching usage data... {}/{total}{RESET}  ", all.len());
                 if all.len() as u64 >= total {
                     break;
                 }
@@ -346,6 +351,7 @@ async fn fetch_all_events(
             _ => break,
         }
     }
+    eprint!("\r  {DIM}✓ fetched {} events{RESET}              \n", all.len());
     Ok(all)
 }
 
@@ -658,9 +664,16 @@ pub async fn run(since_days: u32) -> Result<()> {
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
 
+    eprint!("  {DIM}⠋ connecting to cursor.com...{RESET}");
     match fetch_summary(&client, &creds).await {
-        Ok(s) => print_summary(&s),
-        Err(e) => eprintln!("  {DIM}usage-summary: {e}{RESET}"),
+        Ok(s) => {
+            eprint!("\r                                    \r");
+            print_summary(&s);
+        }
+        Err(e) => {
+            eprint!("\r                                    \r");
+            eprintln!("  {DIM}usage-summary: {e}{RESET}");
+        }
     }
 
     let now_ms = chrono::Utc::now().timestamp_millis();
@@ -672,7 +685,6 @@ pub async fn run(since_days: u32) -> Result<()> {
     } else {
         print_events(&events, since_days);
         write_cache(&events)?;
-        println!("  {DIM}cached to {}{RESET}", cache_path());
     }
 
     println!();

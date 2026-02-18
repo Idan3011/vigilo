@@ -48,7 +48,7 @@ async fn dispatch_subcommand(args: &[String], ledger_path: &str) -> Option<Resul
         Some("diff") => Some(view::diff(ledger_path, &parse_view_args(&args[1..]))),
         Some("cursor-usage") => Some(dispatch_cursor_usage(&args[1..]).await),
         Some("hook") => Some(hook::run(ledger_path).await),
-        Some("setup") => Some(setup::run()),
+        Some("setup") => Some(setup::run().await),
         Some("watch") => Some(view::watch(ledger_path).await),
         Some("summary") => Some(view::summary(ledger_path)),
         Some("sessions") => Some(view::sessions(ledger_path, parse_view_args(&args[1..]))),
