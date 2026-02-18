@@ -1,5 +1,7 @@
 # vigilo
 
+[![CI](https://github.com/Idan3011/vigilo/actions/workflows/ci.yml/badge.svg)](https://github.com/Idan3011/vigilo/actions/workflows/ci.yml)
+
 > Every tool call your AI agent makes — logged, timed, diff'd. Nothing sent anywhere.
 
 AI coding agents read files, write code, run commands, and commit to git on your behalf. **vigilo** gives you a complete, queryable record of everything they do — without changing how they work or what they can do.
