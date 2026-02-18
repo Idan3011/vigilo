@@ -47,9 +47,7 @@ pub fn append_event(event: &impl Serialize, ledger_path: &str) -> Result<(), Led
 
     file.write_all(line.as_bytes())?;
 
-    if let Err(e) = file.flush() {
-        eprintln!("[vigilo] ledger flush error: {e}");
-    }
+    file.flush()?;
 
     const MAX_SIZE: u64 = 10 * 1024 * 1024;
     const MAX_ROTATED: usize = 5;
