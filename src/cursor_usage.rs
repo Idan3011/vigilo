@@ -1,19 +1,6 @@
-//! Fetch Cursor token usage from the local Cursor DB + cursor.com API.
-//!
-//! Flow:
-//!   1. Auto-discover state.vscdb (Linux / macOS / Windows / WSL)
-//!   2. Read credentials from it
-//!   3. GET  cursor.com/api/usage-summary                            → billing + plan limits
-//!   4. POST cursor.com/api/dashboard/get-filtered-usage-events      → per-event tokens
-//!
-//! This is the ONLY module in vigilo that makes network calls.
-//! It is opt-in: only invoked via `vigilo cursor-usage`.
-
 use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
-
-// ── ANSI ─────────────────────────────────────────────────────────────────────
 
 const RESET: &str = "\x1b[0m";
 const BOLD: &str = "\x1b[1m";
@@ -24,8 +11,6 @@ const RED: &str = "\x1b[31m";
 const YELLOW: &str = "\x1b[33m";
 const BG_MAGENTA: &str = "\x1b[45m";
 const WHITE: &str = "\x1b[97m";
-
-// ── Platform detection ───────────────────────────────────────────────────────
 
 #[derive(Debug, PartialEq)]
 enum Platform {
@@ -54,33 +39,23 @@ fn is_wsl() -> bool {
         .unwrap_or(false)
 }
 
-// ── Cursor DB discovery ──────────────────────────────────────────────────────
-
 const DB_SUFFIX: &str = "User/globalStorage/state.vscdb";
 
-/// Resolve the Cursor DB path. Priority:
-///   1. CURSOR_DATA_DIR env var  (explicit override)
-///   2. CURSOR_DB key in ~/.vigilo/config  (persisted by setup)
-///   3. Auto-discover based on detected platform
 pub fn resolve_db_path() -> Result<String> {
-    // 1. Explicit env override
     if let Ok(dir) = std::env::var("CURSOR_DATA_DIR") {
         let path = format!("{dir}/{DB_SUFFIX}");
         return require_exists(&path, "CURSOR_DATA_DIR points to a missing DB");
     }
 
-    // 2. Persisted from `vigilo setup`
     if let Some(path) = read_config_key("CURSOR_DB") {
         if Path::new(&path).exists() {
             return Ok(path);
         }
     }
 
-    // 3. Auto-discover
     discover_db()
 }
 
-/// Auto-discover the Cursor DB by probing platform-specific candidate paths.
 pub fn discover_db() -> Result<String> {
     let candidates = candidate_paths();
 
@@ -100,7 +75,6 @@ pub fn discover_db() -> Result<String> {
         })
 }
 
-/// Build a list of candidate DB paths for the current platform.
 fn candidate_paths() -> Vec<String> {
     let home = home_dir();
     match detect_platform() {
@@ -121,19 +95,16 @@ fn windows_candidates() -> Vec<String> {
     paths
 }
 
-/// WSL: Cursor is installed on the Windows host. We need to cross the filesystem boundary.
 fn wsl_candidates(home: &str) -> Vec<String> {
     let mount = wsl_mount_root();
     let mut paths = Vec::new();
 
-    // Fast path: resolve the Windows username directly
     if let Some(user) = wsl_windows_username() {
         paths.push(format!(
             "{mount}/Users/{user}/AppData/Roaming/Cursor/{DB_SUFFIX}"
         ));
     }
 
-    // Fallback: scan all user directories under /mnt/c/Users
     let users_dir = format!("{mount}/Users");
     if let Ok(entries) = std::fs::read_dir(&users_dir) {
         for entry in entries.filter_map(|e| e.ok()) {
@@ -151,7 +122,6 @@ fn wsl_candidates(home: &str) -> Vec<String> {
         }
     }
 
-    // Also check native Linux location (Cursor installed inside WSL)
     paths.push(format!("{home}/.config/Cursor/{DB_SUFFIX}"));
 
     paths
@@ -161,14 +131,11 @@ fn is_system_user(name: &str) -> bool {
     matches!(name, "Default" | "Public" | "Default User" | "All Users")
 }
 
-/// Get the Windows C: drive mount point from inside WSL.
 fn wsl_mount_root() -> String {
-    // Best: ask wslpath for the authoritative answer
     if let Some(path) = run_command("wslpath", &["-u", "C:\\"]) {
         return path.trim_end_matches('/').to_string();
     }
 
-    // Fallback: parse /etc/wsl.conf [automount] root=
     if let Ok(conf) = std::fs::read_to_string("/etc/wsl.conf") {
         for line in conf.lines() {
             let trimmed = line.trim();
@@ -188,17 +155,12 @@ fn wsl_mount_root() -> String {
     "/mnt/c".to_string()
 }
 
-/// Get the Windows username from inside WSL.
 fn wsl_windows_username() -> Option<String> {
-    // wslvar is the most reliable
-    run_command("wslvar", &["USERNAME"])
-        // Fallback: cmd.exe
-        .or_else(|| {
-            run_command("cmd.exe", &["/c", "echo", "%USERNAME%"]).filter(|s| !s.contains('%'))
-        })
+    run_command("wslvar", &["USERNAME"]).or_else(|| {
+        run_command("cmd.exe", &["/c", "echo", "%USERNAME%"]).filter(|s| !s.contains('%'))
+    })
 }
 
-/// Run a command and return trimmed stdout, or None on failure.
 fn run_command(cmd: &str, args: &[&str]) -> Option<String> {
     std::process::Command::new(cmd)
         .args(args)
@@ -219,10 +181,6 @@ fn require_exists(path: &str, hint: &str) -> Result<String> {
     }
 }
 
-// ── SQLite access ────────────────────────────────────────────────────────────
-
-/// Open the Cursor DB read-only. On WSL, copies to /tmp first because SQLite
-/// cannot use its file-locking over the 9P filesystem bridge.
 fn open_db(path: &str) -> Result<rusqlite::Connection> {
     let effective = if needs_local_copy(path) {
         copy_to_local(path)?
@@ -243,8 +201,6 @@ fn copy_to_local(src: &str) -> Result<String> {
     std::fs::copy(src, dest).with_context(|| format!("failed to copy {src} → {dest}"))?;
     Ok(dest.to_string())
 }
-
-// ── Credential extraction ────────────────────────────────────────────────────
 
 struct Credentials {
     user_id: String,
@@ -288,8 +244,6 @@ fn extract_user_id(query: &dyn Fn(&str) -> Option<String>) -> Result<String> {
         .map(|s| s.to_string())
 }
 
-// ── HTTP helpers ─────────────────────────────────────────────────────────────
-
 const SUMMARY_URL: &str = "https://cursor.com/api/usage-summary";
 const EVENTS_URL: &str = "https://cursor.com/api/dashboard/get-filtered-usage-events";
 
@@ -310,8 +264,6 @@ fn percent_encode(s: &str) -> String {
     }
     out
 }
-
-// ── API calls ────────────────────────────────────────────────────────────────
 
 async fn fetch_summary(client: &reqwest::Client, creds: &Credentials) -> Result<serde_json::Value> {
     let resp = client
@@ -369,7 +321,6 @@ async fn fetch_events(
         .context("invalid JSON from filtered-usage-events")
 }
 
-/// Paginate through all usage events in the given time range.
 async fn fetch_all_events(
     client: &reqwest::Client,
     creds: &Credentials,
@@ -397,8 +348,6 @@ async fn fetch_all_events(
     }
     Ok(all)
 }
-
-// ── Display ──────────────────────────────────────────────────────────────────
 
 fn normalize_model(m: &str) -> String {
     match m {
@@ -488,6 +437,10 @@ fn print_events(events: &[serde_json::Value], since_days: u32) {
         );
     }
 
+    print_model_breakdown(by_model);
+}
+
+fn print_model_breakdown(by_model: HashMap<String, TokenTotals>) {
     let mut models: Vec<(String, TokenTotals)> = by_model.into_iter().collect();
     models.sort_by(|a, b| b.1.count.cmp(&a.1.count));
 
@@ -547,8 +500,6 @@ impl TokenTotals {
     }
 }
 
-// ── Config helper ────────────────────────────────────────────────────────────
-
 fn read_config_key(key: &str) -> Option<String> {
     let home = std::env::var("HOME").ok()?;
     let config = std::fs::read_to_string(format!("{home}/.vigilo/config")).ok()?;
@@ -566,15 +517,12 @@ fn home_dir() -> String {
     std::env::var("HOME").unwrap_or_else(|_| ".".into())
 }
 
-// ── Cached token data (for view integration) ────────────────────────────────
-
 const CACHE_FILE: &str = ".vigilo/cursor-tokens.jsonl";
 
 fn cache_path() -> String {
     format!("{}/{CACHE_FILE}", home_dir())
 }
 
-/// A cached cursor.com usage event, stored locally for view enrichment.
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
 pub struct CachedTokenEvent {
     pub timestamp_ms: i64,
@@ -603,7 +551,6 @@ impl CachedTokenEvent {
     }
 }
 
-/// Write fetched cursor.com events to the local cache file.
 fn write_cache(events: &[serde_json::Value]) -> Result<()> {
     let path = cache_path();
     if let Some(parent) = Path::new(&path).parent() {
@@ -619,7 +566,6 @@ fn write_cache(events: &[serde_json::Value]) -> Result<()> {
     Ok(())
 }
 
-/// Load cached token events and return those within a time range (unix ms).
 pub fn load_cached_tokens_for_range(start_ms: i64, end_ms: i64) -> Vec<CachedTokenEvent> {
     let Ok(content) = std::fs::read_to_string(cache_path()) else {
         return Vec::new();
@@ -632,7 +578,6 @@ pub fn load_cached_tokens_for_range(start_ms: i64, end_ms: i64) -> Vec<CachedTok
         .collect()
 }
 
-/// Aggregate cached tokens into a summary for display.
 pub struct CachedSessionTokens {
     pub model: String,
     pub input_tokens: u64,
@@ -661,7 +606,6 @@ pub fn aggregate_cached_tokens(events: &[CachedTokenEvent]) -> Option<CachedSess
         *model_counts.entry(e.model.clone()).or_default() += 1;
     }
 
-    // Pick the most-used model
     let model = model_counts
         .into_iter()
         .max_by_key(|(_, c)| *c)
@@ -678,9 +622,6 @@ pub fn aggregate_cached_tokens(events: &[CachedTokenEvent]) -> Option<CachedSess
     })
 }
 
-// ── Public entry points ──────────────────────────────────────────────────────
-
-/// Sync: fetch cursor.com token data and cache locally.
 pub async fn sync(since_days: u32) -> Result<()> {
     let db_path = resolve_db_path()?;
     let creds = read_credentials(&db_path)?;
@@ -730,7 +671,6 @@ pub async fn run(since_days: u32) -> Result<()> {
         println!("  {DIM}no usage events in the last {since_days} days{RESET}");
     } else {
         print_events(&events, since_days);
-        // Also cache for view enrichment
         write_cache(&events)?;
         println!("  {DIM}cached to {}{RESET}", cache_path());
     }

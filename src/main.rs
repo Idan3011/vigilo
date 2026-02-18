@@ -2,6 +2,7 @@ mod crypto;
 mod cursor_usage;
 mod git;
 mod hook;
+mod hook_helpers;
 mod ledger;
 mod models;
 mod server;
@@ -26,65 +27,8 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
-    match args.first().map(|s| s.as_str()) {
-        Some("view") => {
-            let view_args = parse_view_args(&args[1..]);
-            return view::run(&ledger_path, view_args);
-        }
-        Some("generate-key") => {
-            use base64::{engine::general_purpose::STANDARD, Engine};
-            use rand::RngCore;
-            let mut key = [0u8; 32];
-            rand::rngs::OsRng.fill_bytes(&mut key);
-            println!("{}", STANDARD.encode(key));
-            return Ok(());
-        }
-        Some("stats") => {
-            let since = get_flag(&args[1..], "--since").map(|s| parse_date(&s));
-            let until = get_flag(&args[1..], "--until").map(|s| parse_date(&s));
-            return view::stats_filtered(&ledger_path, since.as_deref(), until.as_deref());
-        }
-        Some("errors") => {
-            let since = get_flag(&args[1..], "--since").map(|s| parse_date(&s));
-            let until = get_flag(&args[1..], "--until").map(|s| parse_date(&s));
-            return view::errors(&ledger_path, since.as_deref(), until.as_deref());
-        }
-        Some("query") => {
-            let since = get_flag(&args[1..], "--since").map(|s| parse_date(&s));
-            let until = get_flag(&args[1..], "--until").map(|s| parse_date(&s));
-            let tool = get_flag(&args[1..], "--tool");
-            let risk = get_flag(&args[1..], "--risk");
-            let session = get_flag(&args[1..], "--session");
-            return view::query(
-                &ledger_path,
-                since.as_deref(),
-                until.as_deref(),
-                tool.as_deref(),
-                risk.as_deref(),
-                session.as_deref(),
-            );
-        }
-        Some("diff") => {
-            let view_args = parse_view_args(&args[1..]);
-            return view::diff(&ledger_path, &view_args);
-        }
-        Some("cursor-usage") => {
-            let since = get_flag(&args[1..], "--since-days")
-                .and_then(|s| s.parse().ok())
-                .unwrap_or(30);
-            if args.iter().any(|a| a == "--sync") {
-                return cursor_usage::sync(since).await;
-            }
-            return cursor_usage::run(since).await;
-        }
-        Some("hook") => return hook::run(&ledger_path).await,
-        Some("setup") => return setup::run(),
-        Some("watch") => return view::watch(&ledger_path).await,
-        Some("export") => {
-            let format = get_flag(&args[1..], "--format").unwrap_or_else(|| "csv".to_string());
-            return view::export(&ledger_path, &format);
-        }
-        _ => {}
+    if let Some(result) = dispatch_subcommand(&args, &ledger_path).await {
+        return result;
     }
 
     let session_id = Uuid::new_v4();
@@ -92,6 +36,87 @@ async fn main() -> Result<()> {
     eprintln!("[vigilo] ledger={ledger_path}");
 
     server::run(ledger_path, session_id).await
+}
+
+async fn dispatch_subcommand(args: &[String], ledger_path: &str) -> Option<Result<()>> {
+    match args.first().map(|s| s.as_str()) {
+        Some("view") => Some(view::run(ledger_path, parse_view_args(&args[1..]))),
+        Some("generate-key") => Some(generate_key()),
+        Some("stats") => Some(dispatch_stats(&args[1..], ledger_path)),
+        Some("errors") => Some(dispatch_errors(&args[1..], ledger_path)),
+        Some("query") => Some(dispatch_query(&args[1..], ledger_path)),
+        Some("diff") => Some(view::diff(ledger_path, &parse_view_args(&args[1..]))),
+        Some("cursor-usage") => Some(dispatch_cursor_usage(&args[1..]).await),
+        Some("hook") => Some(hook::run(ledger_path).await),
+        Some("setup") => Some(setup::run()),
+        Some("watch") => Some(view::watch(ledger_path).await),
+        Some("summary") => Some(view::summary(ledger_path)),
+        Some("sessions") => Some(view::sessions(ledger_path, parse_view_args(&args[1..]))),
+        Some("tail") => Some(dispatch_tail(&args[1..], ledger_path)),
+        Some("export") => Some(dispatch_export(&args[1..], ledger_path)),
+        _ => None,
+    }
+}
+
+fn generate_key() -> Result<()> {
+    use base64::{engine::general_purpose::STANDARD, Engine};
+    use rand::RngCore;
+    let mut key = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut key);
+    println!("{}", STANDARD.encode(key));
+    Ok(())
+}
+
+fn dispatch_stats(args: &[String], ledger_path: &str) -> Result<()> {
+    let since = get_flag(args, "--since").map(|s| parse_date(&s));
+    let until = get_flag(args, "--until").map(|s| parse_date(&s));
+    view::stats_filtered(ledger_path, since.as_deref(), until.as_deref())
+}
+
+fn dispatch_errors(args: &[String], ledger_path: &str) -> Result<()> {
+    let since = get_flag(args, "--since").map(|s| parse_date(&s));
+    let until = get_flag(args, "--until").map(|s| parse_date(&s));
+    view::errors(ledger_path, since.as_deref(), until.as_deref())
+}
+
+fn dispatch_query(args: &[String], ledger_path: &str) -> Result<()> {
+    let since = get_flag(args, "--since").map(|s| parse_date(&s));
+    let until = get_flag(args, "--until").map(|s| parse_date(&s));
+    let tool = get_flag(args, "--tool");
+    let risk = get_flag(args, "--risk");
+    let session = get_flag(args, "--session");
+    view::query(
+        ledger_path,
+        since.as_deref(),
+        until.as_deref(),
+        tool.as_deref(),
+        risk.as_deref(),
+        session.as_deref(),
+    )
+}
+
+async fn dispatch_cursor_usage(args: &[String]) -> Result<()> {
+    let since = get_flag(args, "--since-days")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+    if args.iter().any(|a| a == "--sync") {
+        cursor_usage::sync(since).await
+    } else {
+        cursor_usage::run(since).await
+    }
+}
+
+fn dispatch_tail(args: &[String], ledger_path: &str) -> Result<()> {
+    let n = get_flag(args, "-n")
+        .or_else(|| get_flag(args, "--last"))
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20);
+    view::tail(ledger_path, n)
+}
+
+fn dispatch_export(args: &[String], ledger_path: &str) -> Result<()> {
+    let format = get_flag(args, "--format").unwrap_or_else(|| "csv".to_string());
+    view::export(ledger_path, &format)
 }
 
 fn parse_view_args(args: &[String]) -> view::ViewArgs {
@@ -106,38 +131,26 @@ fn parse_view_args(args: &[String]) -> view::ViewArgs {
                 }
             }
             "--risk" => {
-                if let Some(r) = args.get(i + 1) {
-                    out.risk = Some(r.clone());
-                    i += 1;
-                }
+                out.risk = args.get(i + 1).cloned();
+                i += 1;
             }
             "--tool" => {
-                if let Some(t) = args.get(i + 1) {
-                    out.tool = Some(t.clone());
-                    i += 1;
-                }
+                out.tool = args.get(i + 1).cloned();
+                i += 1;
             }
             "--session" => {
-                if let Some(s) = args.get(i + 1) {
-                    out.session = Some(s.clone());
-                    i += 1;
-                }
+                out.session = args.get(i + 1).cloned();
+                i += 1;
             }
             "--since" => {
-                if let Some(s) = args.get(i + 1) {
-                    out.since = Some(parse_date(s));
-                    i += 1;
-                }
+                out.since = args.get(i + 1).map(|s| parse_date(s));
+                i += 1;
             }
             "--until" => {
-                if let Some(s) = args.get(i + 1) {
-                    out.until = Some(parse_date(s));
-                    i += 1;
-                }
+                out.until = args.get(i + 1).map(|s| parse_date(s));
+                i += 1;
             }
-            "--expand" => {
-                out.expand = true;
-            }
+            "--expand" => out.expand = true,
             _ => {}
         }
         i += 1;
@@ -148,8 +161,16 @@ fn parse_view_args(args: &[String]) -> view::ViewArgs {
 fn print_help() {
     println!("vigilo {}", env!("CARGO_PKG_VERSION"));
     println!("Observe what AI agents do — every tool call logged, nothing sent anywhere.\n");
+    print_help_usage();
+    print_help_options();
+}
+
+fn print_help_usage() {
     println!("USAGE:");
     println!("  vigilo                          MCP server mode (reads stdio)");
+    println!("  vigilo summary                  Today at a glance");
+    println!("  vigilo sessions [OPTIONS]       List all sessions (one line each)");
+    println!("  vigilo tail     [-n N]          Last N events flat (default: 20)");
     println!("  vigilo view     [OPTIONS]       View ledger grouped by session");
     println!("  vigilo watch                    Live tail of incoming events");
     println!("  vigilo stats    [OPTIONS]       Aggregate stats across all sessions");
@@ -161,6 +182,9 @@ fn print_help() {
     println!("  vigilo hook                     Process a Claude Code PostToolUse hook event (reads stdin)");
     println!("  vigilo generate-key             Generate a base64 AES-256 encryption key");
     println!("  vigilo help                     Show this message\n");
+}
+
+fn print_help_options() {
     println!("VIEW / STATS / QUERY OPTIONS:");
     println!("  --since <expr>    From date  (today, yesterday, 7d, 2w, 1m, YYYY-MM-DD)");
     println!("  --until <expr>    To date    (same formats as --since)");
@@ -222,44 +246,56 @@ fn get_flag(args: &[String], flag: &str) -> Option<String> {
     args.windows(2).find(|w| w[0] == flag).map(|w| w[1].clone())
 }
 
-/// Resolve a human-readable date expression to a YYYY-MM-DD string.
-/// Accepts: today, yesterday, Nd (days), Nw (weeks), Nm (months), YYYY-MM-DD.
 fn parse_date(expr: &str) -> String {
-    use chrono::{Duration, Local, Months};
+    use chrono::{Duration, Local};
 
     let today = Local::now().date_naive();
 
     match expr {
         "today" => today.format("%Y-%m-%d").to_string(),
         "yesterday" => (today - Duration::days(1)).format("%Y-%m-%d").to_string(),
-        s if s.ends_with('d') => {
-            if let Ok(n) = s.trim_end_matches('d').parse::<u64>() {
-                (today - Duration::days(n as i64))
-                    .format("%Y-%m-%d")
-                    .to_string()
-            } else {
-                expr.to_string()
-            }
-        }
-        s if s.ends_with('w') => {
-            if let Ok(n) = s.trim_end_matches('w').parse::<u64>() {
-                (today - Duration::weeks(n as i64))
-                    .format("%Y-%m-%d")
-                    .to_string()
-            } else {
-                expr.to_string()
-            }
-        }
-        s if s.ends_with('m') => {
-            if let Ok(n) = s.trim_end_matches('m').parse::<u32>() {
-                today
-                    .checked_sub_months(Months::new(n))
-                    .map(|d| d.format("%Y-%m-%d").to_string())
-                    .unwrap_or_else(|| expr.to_string())
-            } else {
-                expr.to_string()
-            }
-        }
-        _ => expr.to_string(), // pass through YYYY-MM-DD or anything else
+        s if s.ends_with('d') => parse_duration_days(s, today),
+        s if s.ends_with('w') => parse_duration_weeks(s, today),
+        s if s.ends_with('m') => parse_duration_months(s, today),
+        _ => expr.to_string(),
     }
+}
+
+fn parse_duration_days(s: &str, today: chrono::NaiveDate) -> String {
+    use chrono::Duration;
+    s.trim_end_matches('d')
+        .parse::<u64>()
+        .ok()
+        .map(|n| {
+            (today - Duration::days(n as i64))
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .unwrap_or_else(|| s.to_string())
+}
+
+fn parse_duration_weeks(s: &str, today: chrono::NaiveDate) -> String {
+    use chrono::Duration;
+    s.trim_end_matches('w')
+        .parse::<u64>()
+        .ok()
+        .map(|n| {
+            (today - Duration::weeks(n as i64))
+                .format("%Y-%m-%d")
+                .to_string()
+        })
+        .unwrap_or_else(|| s.to_string())
+}
+
+fn parse_duration_months(s: &str, today: chrono::NaiveDate) -> String {
+    use chrono::Months;
+    s.trim_end_matches('m')
+        .parse::<u32>()
+        .ok()
+        .and_then(|n| {
+            today
+                .checked_sub_months(Months::new(n))
+                .map(|d| d.format("%Y-%m-%d").to_string())
+        })
+        .unwrap_or_else(|| s.to_string())
 }

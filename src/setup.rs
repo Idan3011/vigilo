@@ -7,6 +7,28 @@ pub fn run() -> Result<()> {
     let has_claude = detect_claude();
     let has_cursor = detect_cursor();
 
+    print_detection(has_claude, has_cursor);
+
+    let default_ledger = format!("{}/.vigilo/events.jsonl", home());
+    let ledger = prompt(
+        &format!("[1/4] Ledger path [{}]", default_ledger),
+        &default_ledger,
+    )?;
+
+    if let Some(parent) = std::path::Path::new(&ledger).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let encryption_key = setup_encryption()?;
+    setup_claude_if_detected(has_claude, &ledger)?;
+    let cursor_db = setup_cursor_if_detected(has_cursor, &ledger)?;
+
+    write_config(&ledger, encryption_key.as_deref(), cursor_db.as_deref())?;
+    print_completion(encryption_key.as_deref());
+    Ok(())
+}
+
+fn print_detection(has_claude: bool, has_cursor: bool) {
     if has_claude {
         println!("  Claude Code detected ✓");
     }
@@ -18,83 +40,63 @@ pub fn run() -> Result<()> {
         println!("  You can still set up vigilo manually — see README.");
     }
     println!();
+}
 
-    // 1. Ledger path
-    let default_ledger = format!("{}/.vigilo/events.jsonl", home());
-    let ledger = prompt(
-        &format!("[1/4] Ledger path [{}]", default_ledger),
-        &default_ledger,
-    )?;
-
-    // Ensure directory exists
-    if let Some(parent) = std::path::Path::new(&ledger).parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    // 2. Encryption
+fn setup_encryption() -> Result<Option<String>> {
     println!("\n[2/4] Encryption");
     println!("      Encrypt file paths and arguments at rest? (AES-256-GCM)");
     println!("      Recommended for sensitive codebases. You can enable it later.");
-    let want_encryption = prompt_yn("      Enable encryption?", false)?;
-    let encryption_key = if want_encryption {
-        let key = crate::crypto::generate_key_b64();
-        println!("      Generated key: {key}");
-        println!("      ⚠  Save this key — losing it means losing access to encrypted events.");
-        Some(key)
-    } else {
-        None
-    };
+    if !prompt_yn("      Enable encryption?", false)? {
+        return Ok(None);
+    }
+    let key = crate::crypto::generate_key_b64();
+    println!("      Generated key: {key}");
+    println!("      ⚠  Save this key — losing it means losing access to encrypted events.");
+    Ok(Some(key))
+}
 
-    // 3. Claude Code
+fn setup_claude_if_detected(has_claude: bool, ledger: &str) -> Result<()> {
     if has_claude {
         println!("\n[3/4] Claude Code integration");
         println!("      Sets up MCP server in ~/.claude.json");
         println!("      Sets up PostToolUse hook in ~/.claude/settings.json");
         if prompt_yn("      Configure Claude Code?", true)? {
-            match setup_claude(&ledger) {
-                Ok(_) => {}
-                Err(e) => eprintln!("      ! Error: {e}"),
+            if let Err(e) = setup_claude(ledger) {
+                eprintln!("      ! Error: {e}");
             }
         }
     } else {
         println!("\n[3/4] Claude Code — not detected, skipping");
     }
-
-    // 4. Cursor
-    let mut cursor_db: Option<String> = None;
-    if has_cursor {
-        println!("\n[4/4] Cursor integration");
-        println!("      Sets up MCP server in ~/.cursor/mcp.json");
-        println!("      Sets up lifecycle hooks in ~/.cursor/hooks.json");
-        if prompt_yn("      Configure Cursor?", true)? {
-            match setup_cursor(&ledger) {
-                Ok(_) => {}
-                Err(e) => eprintln!("      ! Error: {e}"),
-            }
-            // Discover Cursor DB for cursor-usage
-            cursor_db = discover_cursor_db();
-        }
-    } else {
-        println!("\n[4/4] Cursor — not detected, skipping");
-    }
-
-    // Write ~/.vigilo/config
-    write_config(&ledger, encryption_key.as_deref(), cursor_db.as_deref())?;
-
-    println!("\n  Done.\n");
-    println!("  Run:  vigilo view");
-    if want_encryption {
-        println!("  Add to your shell profile:");
-        println!(
-            "  export VIGILO_ENCRYPTION_KEY={}",
-            encryption_key.as_deref().unwrap_or("")
-        );
-    }
-    println!();
     Ok(())
 }
 
-// ── Claude Code ───────────────────────────────────────────────────────────────
+fn setup_cursor_if_detected(has_cursor: bool, ledger: &str) -> Result<Option<String>> {
+    if !has_cursor {
+        println!("\n[4/4] Cursor — not detected, skipping");
+        return Ok(None);
+    }
+    println!("\n[4/4] Cursor integration");
+    println!("      Sets up MCP server in ~/.cursor/mcp.json");
+    println!("      Sets up lifecycle hooks in ~/.cursor/hooks.json");
+    if !prompt_yn("      Configure Cursor?", true)? {
+        return Ok(None);
+    }
+    if let Err(e) = setup_cursor(ledger) {
+        eprintln!("      ! Error: {e}");
+    }
+    Ok(discover_cursor_db())
+}
+
+fn print_completion(encryption_key: Option<&str>) {
+    println!("\n  Done.\n");
+    println!("  Run:  vigilo view");
+    if let Some(key) = encryption_key {
+        println!("  Add to your shell profile:");
+        println!("  export VIGILO_ENCRYPTION_KEY={key}");
+    }
+    println!();
+}
 
 fn setup_claude(ledger: &str) -> Result<()> {
     setup_claude_mcp(ledger)?;
@@ -124,17 +126,25 @@ fn setup_claude_hook() -> Result<()> {
     let path = format!("{}/.claude/settings.json", home());
     let mut config: serde_json::Value = read_json_or_empty(&path);
 
-    // Merge — don't overwrite existing hooks
     let hooks = config["hooks"].as_object_mut().cloned().unwrap_or_default();
     let mut hooks_val = serde_json::Value::Object(hooks.into_iter().collect());
 
-    let our_hook = serde_json::json!([{
-        "matcher": ".*",
-        "hooks": [{ "type": "command", "command": "vigilo hook" }]
-    }]);
+    let already = is_vigilo_hook_present(&hooks_val["PostToolUse"]);
+    if !already {
+        hooks_val["PostToolUse"] = serde_json::json!([{
+            "matcher": ".*",
+            "hooks": [{ "type": "command", "command": "vigilo hook" }]
+        }]);
+    }
 
-    // Only add if not already present
-    let already = hooks_val["PostToolUse"]
+    config["hooks"] = hooks_val;
+    write_json(&path, &config)?;
+    println!("      ✓ ~/.claude/settings.json");
+    Ok(())
+}
+
+fn is_vigilo_hook_present(post_tool_use: &serde_json::Value) -> bool {
+    post_tool_use
         .as_array()
         .map(|arr| {
             arr.iter().any(|h| {
@@ -145,19 +155,8 @@ fn setup_claude_hook() -> Result<()> {
                     == Some("vigilo hook")
             })
         })
-        .unwrap_or(false);
-
-    if !already {
-        hooks_val["PostToolUse"] = our_hook;
-    }
-
-    config["hooks"] = hooks_val;
-    write_json(&path, &config)?;
-    println!("      ✓ ~/.claude/settings.json");
-    Ok(())
+        .unwrap_or(false)
 }
-
-// ── Cursor ────────────────────────────────────────────────────────────────────
 
 fn setup_cursor(ledger: &str) -> Result<()> {
     setup_cursor_mcp(ledger)?;
@@ -203,7 +202,6 @@ fn setup_cursor_hooks() -> Result<()> {
     Ok(())
 }
 
-/// Add a hook command to a hook type's array if not already present.
 fn ensure_hook_entry(hooks: &mut serde_json::Value, hook_type: &str, command: &str) {
     let existing = hooks[hook_type].as_array().cloned().unwrap_or_default();
     let already = existing
@@ -217,9 +215,6 @@ fn ensure_hook_entry(hooks: &mut serde_json::Value, hook_type: &str, command: &s
     hooks[hook_type] = serde_json::Value::Array(arr);
 }
 
-// ── Cursor DB discovery ──────────────────────────────────────────────────────
-
-/// Try to auto-discover the Cursor DB path and report the result.
 fn discover_cursor_db() -> Option<String> {
     println!("\n      Locating Cursor database...");
     match crate::cursor_usage::discover_db() {
@@ -235,8 +230,6 @@ fn discover_cursor_db() -> Option<String> {
         }
     }
 }
-
-// ── Config file ───────────────────────────────────────────────────────────────
 
 const MANAGED_KEYS: &[&str] = &["LEDGER", "CURSOR_DB"];
 
@@ -255,7 +248,6 @@ fn write_config(ledger: &str, encryption_key: Option<&str>, cursor_db: Option<&s
         ));
     }
 
-    // Preserve existing lines that aren't ones we manage
     if let Ok(existing) = std::fs::read_to_string(&path) {
         for line in existing.lines() {
             let key = line.split('=').next().unwrap_or("").trim();
@@ -268,8 +260,6 @@ fn write_config(ledger: &str, encryption_key: Option<&str>, cursor_db: Option<&s
     std::fs::write(&path, lines.join("\n") + "\n")?;
     Ok(())
 }
-
-// ── Detection ─────────────────────────────────────────────────────────────────
 
 fn detect_claude() -> bool {
     std::path::Path::new(&format!("{}/.claude", home())).exists() || which("claude").is_some()
@@ -290,8 +280,6 @@ fn which(cmd: &str) -> Option<String> {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
 }
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 fn home() -> String {
     std::env::var("HOME").unwrap_or_else(|_| ".".into())

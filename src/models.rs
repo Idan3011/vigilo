@@ -23,7 +23,6 @@ pub struct McpEvent {
     pub timed_out: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
-    // ── Token usage (Claude Code: from transcript; Cursor: not exposed in hooks) ──
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub input_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -32,7 +31,6 @@ pub struct McpEvent {
     pub cache_read_tokens: Option<u64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cache_write_tokens: Option<u64>,
-    // ── Per-request metadata ────────────────────────────────────────────────────
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stop_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -41,7 +39,6 @@ pub struct McpEvent {
     pub permission_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_use_id: Option<String>,
-    // ── Client-specific metadata ────────────────────────────────────────────────
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -74,36 +71,26 @@ pub enum Risk {
 }
 
 impl Risk {
-    /// Classify a tool name into its risk level.
-    ///
-    /// Covers vigilo native tools, Claude Code canonical names, and
-    /// Cursor normalized names — one authoritative mapping for the whole codebase.
     pub fn classify(tool: &str) -> Self {
-        // Strip MCP proxy prefix (e.g. "MCP:list_directory" → "list_directory")
         let tool = tool.strip_prefix("MCP:").unwrap_or(tool);
 
         match tool {
             "Bash" | "Shell" | "run_command" => Risk::Exec,
 
-            "Read" | "Glob" | "Grep" | "WebFetch" | "WebSearch"
-            | "read_file" | "list_directory" | "search_files" | "get_file_info"
-            | "git_status" | "git_diff" | "git_log"
-            // Claude Code internal tools (task management, hooks, agents, planning)
-            | "Task" | "TaskCreate" | "TaskUpdate" | "TaskGet" | "TaskList" | "TaskOutput"
-            | "EnterPlanMode" | "ExitPlanMode" | "AskUserQuestion"
+            "Read" | "Glob" | "Grep" | "WebFetch" | "WebSearch" | "read_file"
+            | "list_directory" | "search_files" | "get_file_info" | "git_status" | "git_diff"
+            | "git_log" | "Task" | "TaskCreate" | "TaskUpdate" | "TaskGet" | "TaskList"
+            | "TaskOutput" | "EnterPlanMode" | "ExitPlanMode" | "AskUserQuestion"
             | "PostToolUse" | "postToolUse" => Risk::Read,
 
-            "Write" | "Edit" | "MultiEdit" | "NotebookEdit"
-            | "write_file" | "create_directory" | "delete_file" | "move_file"
-            | "patch_file" | "git_commit" => Risk::Write,
+            "Write" | "Edit" | "MultiEdit" | "NotebookEdit" | "write_file" | "create_directory"
+            | "delete_file" | "move_file" | "patch_file" | "git_commit" => Risk::Write,
 
             _ => Risk::Unknown,
         }
     }
 }
 
-/// Compute a unified diff between two strings using the `similar` crate.
-/// Returns `None` when the texts are identical. Truncates at 10,000 chars.
 pub fn compute_unified_diff(old: &str, new: &str) -> Option<String> {
     use similar::{ChangeTag, TextDiff};
 
@@ -134,7 +121,6 @@ pub fn compute_unified_diff(old: &str, new: &str) -> Option<String> {
     }
 }
 
-/// Format a microsecond duration for human-readable display.
 pub fn fmt_duration(us: u64) -> String {
     match us {
         us if us < 1_000 => format!("{us}µs"),
