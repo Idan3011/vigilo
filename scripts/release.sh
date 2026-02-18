@@ -24,7 +24,7 @@ echo "  ${CURRENT} → ${NEXT}"
 sed -i "s/^version = \"${CURRENT}\"/version = \"${NEXT}\"/" Cargo.toml
 cargo check --quiet 2>/dev/null
 
-git add Cargo.toml
+git add Cargo.toml Cargo.lock
 git commit -m "Release ${TAG}"
 git tag "$TAG"
 
