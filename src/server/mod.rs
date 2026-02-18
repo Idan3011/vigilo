@@ -85,8 +85,19 @@ async fn process_messages(
 ) -> Result<()> {
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut stdout = tokio::io::stdout();
+    let mut shutdown = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
 
-    while let Some(line) = lines.next_line().await? {
+    loop {
+        let line = tokio::select! {
+            result = lines.next_line() => match result? {
+                Some(line) => line,
+                None => break,
+            },
+            _ = shutdown.recv() => {
+                eprintln!("[vigilo] interrupted");
+                break;
+            }
+        };
         if line.trim().is_empty() {
             continue;
         }
