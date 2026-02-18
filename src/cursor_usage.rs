@@ -342,7 +342,10 @@ async fn fetch_all_events(
                 all.extend(arr.iter().cloned());
                 let total = data["totalUsageEventsCount"].as_u64().unwrap_or(0);
                 let frame = frames[page as usize % frames.len()];
-                eprint!("\r  {DIM}{frame} fetching usage data... {}/{total}{RESET}  ", all.len());
+                eprint!(
+                    "\r  {DIM}{frame} fetching usage data... {}/{total}{RESET}  ",
+                    all.len()
+                );
                 if all.len() as u64 >= total {
                     break;
                 }
@@ -351,7 +354,10 @@ async fn fetch_all_events(
             _ => break,
         }
     }
-    eprint!("\r  {DIM}✓ fetched {} events{RESET}              \n", all.len());
+    eprint!(
+        "\r  {DIM}✓ fetched {} events{RESET}              \n",
+        all.len()
+    );
     Ok(all)
 }
 

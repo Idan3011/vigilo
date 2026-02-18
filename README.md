@@ -121,7 +121,7 @@ cargo install --git https://github.com/Idan3011/vigilo.git
 vigilo setup
 ```
 
-Auto-detects Claude Code and Cursor, configures MCP servers and hooks, optionally generates an encryption key, and saves everything to `~/.vigilo/config`. Zero manual editing required.
+Auto-detects Claude Code and Cursor, configures MCP servers and hooks, optionally generates an encryption key, syncs Cursor token usage if available, and saves everything to `~/.vigilo/config`. Zero manual editing required.
 
 ### Manual — Claude Code
 
