@@ -18,12 +18,17 @@ pub fn encrypt(key: &[u8; 32], plaintext: &str) -> String {
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
-    let ciphertext = cipher
-        .encrypt(nonce, plaintext.as_bytes())
-        .expect("encryption failed");
-    let mut payload = nonce_bytes.to_vec();
-    payload.extend_from_slice(&ciphertext);
-    format!("{PREFIX}{}", STANDARD.encode(payload))
+    match cipher.encrypt(nonce, plaintext.as_bytes()) {
+        Ok(ciphertext) => {
+            let mut payload = nonce_bytes.to_vec();
+            payload.extend_from_slice(&ciphertext);
+            format!("{PREFIX}{}", STANDARD.encode(payload))
+        }
+        Err(e) => {
+            eprintln!("[vigilo] encryption failed: {e}");
+            plaintext.to_string()
+        }
+    }
 }
 
 pub fn decrypt(key: &[u8; 32], ciphertext: &str) -> Option<String> {

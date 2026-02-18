@@ -2,7 +2,6 @@ use serde::Serialize;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::thread;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug)]
@@ -58,12 +57,9 @@ pub fn append_event(event: &impl Serialize, ledger_path: &str) -> Result<(), Led
     if let Ok(meta) = file.metadata() {
         if meta.len() > MAX_SIZE {
             drop(file);
-            let ledger_path = PathBuf::from(ledger_path);
-            thread::spawn(move || {
-                if let Err(e) = rotate_and_cleanup(&ledger_path, MAX_ROTATED) {
-                    eprintln!("[vigilo] ledger rotation failed: {e}");
-                }
-            });
+            if let Err(e) = rotate_and_cleanup(&PathBuf::from(ledger_path), MAX_ROTATED) {
+                eprintln!("[vigilo] ledger rotation failed: {e}");
+            }
         }
     }
 
