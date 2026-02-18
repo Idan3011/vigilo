@@ -261,6 +261,16 @@ async fn execute_patch_file(args: &serde_json::Value) -> Result<String, String> 
     }
 }
 
+async fn is_binary_file(path: &std::path::Path) -> bool {
+    let mut buf = [0u8; 512];
+    let Ok(mut file) = tokio::fs::File::open(path).await else {
+        return false;
+    };
+    use tokio::io::AsyncReadExt;
+    let n = file.read(&mut buf).await.unwrap_or(0);
+    buf[..n].contains(&0)
+}
+
 const MAX_SEARCH_DEPTH: u32 = 12;
 
 async fn search(root: &str, pattern: &str, use_regex: bool) -> Result<String, String> {
@@ -321,6 +331,9 @@ async fn search_dir(
             ))
             .await?;
         } else if meta.is_file() {
+            if is_binary_file(&path).await {
+                continue;
+            }
             if let Ok(content) = tokio::fs::read_to_string(&path).await {
                 for (i, line) in content.lines().enumerate() {
                     let hit = match re {

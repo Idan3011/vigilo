@@ -78,7 +78,7 @@ async fn execute_with_timeout(
     let (exec, timed_out) =
         match tokio::time::timeout(timeout_dur, super::tools::execute(tool, arguments)).await {
             Ok(result) => (result, false),
-            Err(_) => (Err(format!("timed out after {timeout_secs}s")), true),
+            Err(_) => (Err(format!("{tool} timed out after {timeout_secs}s")), true),
         };
     let duration_us = started.elapsed().as_micros() as u64;
     ((exec, duration_us), timed_out)
@@ -503,5 +503,26 @@ mod tests {
         assert!(result
             .trim()
             .ends_with(dir.path().file_name().unwrap().to_str().unwrap()));
+    }
+
+    #[tokio::test]
+    async fn execute_search_files_skips_binary_files() {
+        let dir = tempdir().unwrap();
+        tokio::fs::write(dir.path().join("text.txt"), "findme here")
+            .await
+            .unwrap();
+        tokio::fs::write(dir.path().join("binary.bin"), b"findme\x00\x01\x02binary")
+            .await
+            .unwrap();
+
+        let result = execute(
+            "search_files",
+            &json!({ "path": dir.path().to_str().unwrap(), "pattern": "findme" }),
+        )
+        .await
+        .unwrap();
+
+        assert!(result.contains("text.txt"));
+        assert!(!result.contains("binary.bin"));
     }
 }
