@@ -11,7 +11,7 @@ use crate::{
 };
 use anyhow::Result;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Seek, SeekFrom};
+use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 
 pub fn query(
     ledger_path: &str,
@@ -236,8 +236,22 @@ fn extract_file_path(e: &McpEvent, key: Option<&[u8; 32]>, project_root: Option<
     }
 }
 
-pub fn export(ledger_path: &str, format: &str) -> Result<()> {
-    let sessions = load_sessions(ledger_path, &LoadFilter::default())?;
+pub fn export(
+    ledger_path: &str,
+    format: &str,
+    args: &ViewArgs,
+    output: Option<&str>,
+) -> Result<()> {
+    let filter = LoadFilter {
+        since: args.since.as_deref(),
+        until: args.until.as_deref(),
+        session: args.session.as_deref(),
+    };
+    let mut sessions = load_sessions(ledger_path, &filter)?;
+    if let Some(n) = args.last {
+        let skip = sessions.len().saturating_sub(n);
+        sessions.drain(..skip);
+    }
     let all_events: Vec<&McpEvent> = sessions.iter().flat_map(|(_, e)| e).collect();
 
     if all_events.is_empty() {
@@ -245,19 +259,46 @@ pub fn export(ledger_path: &str, format: &str) -> Result<()> {
         return Ok(());
     }
 
+    let ext = if format == "json" { "json" } else { "csv" };
+    let default_path = default_export_path(ext);
+    let dest = output.unwrap_or(&default_path);
+
+    if let Some(parent) = std::path::Path::new(dest).parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let mut file = std::fs::File::create(dest)?;
+
     if format == "json" {
         let json = serde_json::to_string_pretty(&all_events.iter().collect::<Vec<_>>())
             .map_err(|e| anyhow::anyhow!(e))?;
-        println!("{json}");
-        return Ok(());
+        writeln!(file, "{json}")?;
+    } else {
+        write_csv(&mut file, &all_events)?;
     }
 
-    print_csv(&all_events);
+    let display_path = shorten_home(dest);
+    println!("exported {} events to {display_path}", all_events.len());
     Ok(())
 }
 
-fn print_csv(all_events: &[&McpEvent]) {
-    println!("timestamp,session_id,project,branch,commit,dirty,tool,risk,arg,duration_us,status");
+fn default_export_path(ext: &str) -> String {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    format!("{home}/.vigilo/export.{ext}")
+}
+
+fn shorten_home(path: &str) -> String {
+    match std::env::var("HOME") {
+        Ok(home) if path.starts_with(&home) => format!("~{}", &path[home.len()..]),
+        _ => path.to_string(),
+    }
+}
+
+fn write_csv(w: &mut impl Write, all_events: &[&McpEvent]) -> Result<()> {
+    writeln!(
+        w,
+        "timestamp,session,project,branch,tool,risk,arg,duration,status"
+    )?;
     for e in all_events {
         let status = if matches!(e.outcome, Outcome::Err { .. }) {
             "error"
@@ -265,15 +306,17 @@ fn print_csv(all_events: &[&McpEvent]) {
             "ok"
         };
         let risk = format!("{:?}", e.risk).to_lowercase();
-        let arg = e
+        let project_root = e.project.root.as_deref();
+        let raw_arg = e
             .arguments
             .get("file_path")
             .or_else(|| e.arguments.get("path"))
             .or_else(|| e.arguments.get("command"))
             .or_else(|| e.arguments.get("pattern"))
             .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .replace('"', "\"\"");
+            .unwrap_or("");
+        let arg = short_path(raw_arg, project_root).replace('"', "\"\"");
+        let arg = trunc(&arg, 80);
         let ts = e
             .timestamp
             .get(..19)
@@ -281,21 +324,20 @@ fn print_csv(all_events: &[&McpEvent]) {
             .replace('T', " ");
         let sid_str = e.session_id.to_string();
         let sid = short_id(&sid_str);
-        let project = e
-            .project
-            .name
-            .as_deref()
-            .or(e.project.root.as_deref())
-            .unwrap_or("");
+        let project = e.project.name.as_deref().unwrap_or("");
         let branch = e.project.branch.as_deref().unwrap_or("");
-        let commit = e.project.commit.as_deref().unwrap_or("");
-        let dirty = if e.project.dirty { "1" } else { "0" };
-
-        println!(
-            "{ts},{sid},{project},{branch},{commit},{dirty},{},{risk},\"{arg}\",{},{}",
-            e.tool, e.duration_us, status
-        );
+        let dur = if e.duration_us > 0 {
+            models::fmt_duration(e.duration_us)
+        } else {
+            String::new()
+        };
+        writeln!(
+            w,
+            "\"{ts}\",\"{sid}\",\"{project}\",\"{branch}\",\"{}\",\"{risk}\",\"{arg}\",\"{dur}\",\"{status}\"",
+            e.tool
+        )?;
     }
+    Ok(())
 }
 
 pub async fn watch(ledger_path: &str) -> Result<()> {

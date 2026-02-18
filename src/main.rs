@@ -133,7 +133,9 @@ fn dispatch_tail(args: &[String], ledger_path: &str) -> Result<()> {
 
 fn dispatch_export(args: &[String], ledger_path: &str) -> Result<()> {
     let format = get_flag(args, "--format").unwrap_or_else(|| "csv".to_string());
-    view::export(ledger_path, &format)
+    let output = get_flag(args, "--output");
+    let view_args = parse_view_args(args);
+    view::export(ledger_path, &format, &view_args, output.as_deref())
 }
 
 fn parse_view_args(args: &[String]) -> view::ViewArgs {
@@ -195,7 +197,7 @@ fn print_help_usage() {
     println!("  vigilo diff     [OPTIONS]       Show file diffs grouped by session");
     println!("  vigilo query    [OPTIONS]       Filter events across all sessions");
     println!("  vigilo cursor-usage [OPTIONS]   Fetch real token usage from cursor.com");
-    println!("  vigilo export [--format json]   Dump all events as CSV or JSON to stdout");
+    println!("  vigilo export [OPTIONS]         Export events as CSV or JSON to stdout");
     println!("  vigilo hook                     Process a Claude Code PostToolUse hook event (reads stdin)");
     println!("  vigilo doctor                   Check configuration and dependencies");
     println!("  vigilo setup                    Interactive setup wizard");
