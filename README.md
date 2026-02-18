@@ -111,6 +111,14 @@ Downloads a pre-built binary for your platform (Linux x86_64, macOS x86_64/arm64
 cargo install --git https://github.com/Idan3011/vigilo.git
 ```
 
+**Development:**
+
+```bash
+git clone https://github.com/Idan3011/vigilo.git && cd vigilo
+cargo run -- doctor          # run from source, no install step
+cargo dev                    # build + install to ~/.cargo/bin
+```
+
 ---
 
 ## Setup
@@ -290,6 +298,14 @@ vigilo export                             # CSV to stdout
 vigilo export --format json               # full JSON array
 ```
 
+### Health check
+
+```bash
+vigilo doctor                             # check configuration and dependencies
+```
+
+Validates ledger path, encryption key, config file, and Cursor database. Shows pass/fail/info for each check.
+
 ### Other
 
 ```bash
@@ -298,6 +314,8 @@ vigilo setup                              # interactive setup wizard
 ```
 
 **Date expressions** — `today`, `yesterday`, `7d`, `2w`, `1m`, or `YYYY-MM-DD`.
+
+**Global flags** — `--no-color` disables colored output (also respects `NO_COLOR` env).
 
 ---
 
@@ -346,6 +364,7 @@ Override the config file when set.
 | `VIGILO_TAG` | _(git branch)_ | Session label; overrides auto-derived branch name |
 | `VIGILO_TIMEOUT_SECS` | `30` | Max seconds per tool call before timeout |
 | `CURSOR_DATA_DIR` | _(auto-discovered)_ | Override Cursor database directory for `cursor-usage` |
+| `NO_COLOR` | _(unset)_ | Disable colored output (also `--no-color` flag) |
 
 ### Encryption
 
@@ -429,6 +448,7 @@ src/
 │   ├── search.rs      Query, diff, watch, CSV export
 │   ├── data.rs        Ledger loading and event filtering
 │   └── fmt.rs         Shared formatting (colors, duration, tokens)
+├── doctor.rs          Health check subcommand (vigilo doctor)
 ├── hook.rs            Claude Code PostToolUse + Cursor hook processing
 ├── hook_helpers.rs    Shared hook utilities (events, transcripts, diffs)
 ├── models.rs          McpEvent, Outcome, Risk, ProjectContext
