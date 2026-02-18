@@ -345,3 +345,140 @@ fn prompt_yn(question: &str, default_yes: bool) -> Result<bool> {
         _ => default_yes,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_vigilo_hook_present_true_when_configured() {
+        let val = serde_json::json!([{
+            "matcher": ".*",
+            "hooks": [{ "type": "command", "command": "vigilo hook" }]
+        }]);
+        assert!(is_vigilo_hook_present(&val));
+    }
+
+    #[test]
+    fn is_vigilo_hook_present_false_when_empty() {
+        assert!(!is_vigilo_hook_present(&serde_json::json!([])));
+    }
+
+    #[test]
+    fn is_vigilo_hook_present_false_for_null() {
+        assert!(!is_vigilo_hook_present(&serde_json::Value::Null));
+    }
+
+    #[test]
+    fn is_vigilo_hook_present_false_for_other_hook() {
+        let val = serde_json::json!([{
+            "matcher": ".*",
+            "hooks": [{ "type": "command", "command": "other-tool hook" }]
+        }]);
+        assert!(!is_vigilo_hook_present(&val));
+    }
+
+    #[test]
+    fn ensure_hook_entry_adds_new_entry() {
+        let mut hooks = serde_json::json!({});
+        ensure_hook_entry(&mut hooks, "afterFileEdit", "vigilo hook");
+        let arr = hooks["afterFileEdit"].as_array().unwrap();
+        assert_eq!(arr.len(), 1);
+        assert_eq!(arr[0]["command"], "vigilo hook");
+    }
+
+    #[test]
+    fn ensure_hook_entry_is_idempotent() {
+        let mut hooks = serde_json::json!({
+            "afterFileEdit": [{ "command": "vigilo hook" }]
+        });
+        ensure_hook_entry(&mut hooks, "afterFileEdit", "vigilo hook");
+        assert_eq!(hooks["afterFileEdit"].as_array().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn ensure_hook_entry_preserves_existing() {
+        let mut hooks = serde_json::json!({
+            "afterFileEdit": [{ "command": "other-tool" }]
+        });
+        ensure_hook_entry(&mut hooks, "afterFileEdit", "vigilo hook");
+        let arr = hooks["afterFileEdit"].as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["command"], "other-tool");
+        assert_eq!(arr[1]["command"], "vigilo hook");
+    }
+
+    #[test]
+    fn read_json_or_empty_returns_empty_for_missing_file() {
+        let val = read_json_or_empty("/nonexistent/path.json");
+        assert_eq!(val, serde_json::json!({}));
+    }
+
+    #[test]
+    fn read_json_or_empty_parses_valid_json() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("test.json");
+        std::fs::write(&path, r#"{"key": "value"}"#).expect("write");
+        let val = read_json_or_empty(path.to_str().unwrap());
+        assert_eq!(val["key"], "value");
+    }
+
+    #[test]
+    fn read_json_or_empty_returns_empty_for_invalid_json() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("bad.json");
+        std::fs::write(&path, "not json at all").expect("write");
+        let val = read_json_or_empty(path.to_str().unwrap());
+        assert_eq!(val, serde_json::json!({}));
+    }
+
+    #[test]
+    fn write_json_creates_parent_dirs() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("sub/dir/file.json");
+        let val = serde_json::json!({"hello": "world"});
+        write_json(path.to_str().unwrap(), &val).expect("write_json");
+        let contents = std::fs::read_to_string(&path).expect("read");
+        let parsed: serde_json::Value = serde_json::from_str(contents.trim()).expect("parse");
+        assert_eq!(parsed["hello"], "world");
+    }
+
+    #[test]
+    fn write_config_all_scenarios() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let home_str = dir.path().to_str().unwrap();
+        std::env::set_var("HOME", home_str);
+
+        let config_path = dir.path().join(".vigilo/config");
+        let ledger = dir.path().join("events.jsonl");
+        let ledger_str = ledger.to_str().unwrap();
+
+        write_config(ledger_str, None, None).expect("write_config basic");
+        let contents = std::fs::read_to_string(&config_path).expect("read");
+        assert!(contents.starts_with("LEDGER="));
+
+        write_config(ledger_str, None, Some("/some/cursor.db")).expect("write_config cursor_db");
+        let contents = std::fs::read_to_string(&config_path).expect("read");
+        assert!(contents.contains("CURSOR_DB=/some/cursor.db"));
+
+        std::fs::write(&config_path, "LEDGER=old\nMY_CUSTOM=keep\n").expect("seed");
+        write_config(ledger_str, None, None).expect("write_config preserve");
+        let contents = std::fs::read_to_string(&config_path).expect("read");
+        assert!(contents.contains("MY_CUSTOM=keep"));
+        assert!(!contents.contains("LEDGER=old"));
+
+        std::env::remove_var("HOME");
+    }
+
+    #[test]
+    fn binary_path_returns_something() {
+        let path = binary_path();
+        assert!(!path.is_empty());
+    }
+
+    #[test]
+    fn home_returns_home_dir() {
+        let h = home();
+        assert!(!h.is_empty());
+    }
+}
