@@ -44,14 +44,14 @@ mod common {
             session_id,
             server: "vigilo".to_string(),
             tool: tool.to_string(),
-            arguments: serde_json::json!({ "path": "/tmp/test" }),
+            arguments: serde_json::json!({ "path": "test/file.txt" }),
             outcome: TestOutcome::Ok {
                 result: serde_json::json!("ok"),
             },
             duration_us: 1234,
             risk: risk.to_string(),
             project: TestProject {
-                root: Some("/projects/test".to_string()),
+                root: Some("my-project".to_string()),
                 name: Some("test".to_string()),
                 branch: Some("main".to_string()),
                 commit: Some("abc1234".to_string()),

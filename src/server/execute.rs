@@ -262,8 +262,8 @@ mod tests {
 
     #[test]
     fn arg_str_returns_value() {
-        let args = json!({ "path": "/tmp/foo" });
-        assert_eq!(arg_str(&args, "path").unwrap(), "/tmp/foo");
+        let args = json!({ "path": "some/file.txt" });
+        assert_eq!(arg_str(&args, "path").unwrap(), "some/file.txt");
     }
 
     #[test]
@@ -383,11 +383,9 @@ mod tests {
 
     #[tokio::test]
     async fn execute_delete_file_missing_returns_err() {
-        let result = execute(
-            "delete_file",
-            &json!({ "path": "/tmp/vigilo_no_such_file_xyz" }),
-        )
-        .await;
+        let dir = tempdir().unwrap();
+        let missing = dir.path().join("no_such_file.txt");
+        let result = execute("delete_file", &json!({ "path": missing.to_str().unwrap() })).await;
         assert!(result.is_err());
     }
 
