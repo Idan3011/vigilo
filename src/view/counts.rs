@@ -1,7 +1,7 @@
 use super::data::cursor_session_tokens;
 use super::fmt::{
-    client_badge, event_cost_usd, fmt_arg, fmt_cost, fmt_tokens, normalize_model, trunc, BOLD,
-    BRIGHT_RED, DIM, RED, RESET,
+    client_badge, cprintln, event_cost_usd, fmt_arg, fmt_cost, fmt_tokens, normalize_model, trunc,
+    BOLD, BRIGHT_RED, DIM, RED, RESET,
 };
 use crate::{
     crypto,
@@ -103,8 +103,8 @@ fn count_files(events: &[&McpEvent]) -> Vec<(String, usize)> {
 
 fn print_two_column_table(tools: &[(String, usize)], files: &[(String, usize)]) {
     println!();
-    println!("  {BOLD}tools{RESET}                    {BOLD}files{RESET}");
-    println!("  {DIM}─────                    ─────{RESET}");
+    cprintln!("  {BOLD}tools{RESET}                    {BOLD}files{RESET}");
+    cprintln!("  {DIM}─────                    ─────{RESET}");
 
     let max_rows = 8;
     for i in 0..max_rows {
@@ -119,7 +119,7 @@ fn print_two_column_table(tools: &[(String, usize)], files: &[(String, usize)]) 
             String::new()
         };
         if i < tools.len() || i < files.len() {
-            println!("{tool_col}{file_col}");
+            cprintln!("{tool_col}{file_col}");
         }
     }
 }
@@ -164,8 +164,8 @@ pub(super) fn print_models_section(events: &[&McpEvent], sessions: &[(String, Ve
     let mut models: Vec<_> = model_counts.into_iter().collect();
     models.sort_by(|a, b| b.1.calls.cmp(&a.1.calls));
     println!();
-    println!("  {BOLD}models{RESET}");
-    println!("  {DIM}──────{RESET}");
+    cprintln!("  {BOLD}models{RESET}");
+    cprintln!("  {DIM}──────{RESET}");
     for (model, s) in &models {
         let tok_str = format_model_tokens(s.input, s.output, s.cache_read);
         let cost_str = if s.cost > 0.0 {
@@ -173,7 +173,7 @@ pub(super) fn print_models_section(events: &[&McpEvent], sessions: &[(String, Ve
         } else {
             String::new()
         };
-        println!("  {BOLD}{:>4}×{RESET} {model}{tok_str}{cost_str}", s.calls);
+        cprintln!("  {BOLD}{:>4}×{RESET} {model}{tok_str}{cost_str}", s.calls);
     }
     print_model_totals(&models);
 }
@@ -208,13 +208,13 @@ fn print_model_totals(models: &[(String, ModelStats)]) {
     } else {
         String::new()
     };
-    println!(
+    cprintln!(
         "  {DIM}total: {} in · {} out{cache_part}{RESET}",
         fmt_tokens(total_in),
         fmt_tokens(total_out)
     );
     if total_cost > 0.0 {
-        println!("  {DIM}~{} (list pricing){RESET}", fmt_cost(total_cost));
+        cprintln!("  {DIM}~{} (list pricing){RESET}", fmt_cost(total_cost));
     }
 }
 
@@ -243,14 +243,14 @@ pub(super) fn print_projects_section(events: &[&McpEvent]) {
     let mut projects: Vec<(String, usize)> = project_counts.into_iter().collect();
     projects.sort_by(|a, b| b.1.cmp(&a.1));
     println!();
-    println!("  {BOLD}projects{RESET}");
-    println!("  {DIM}────────{RESET}");
+    cprintln!("  {BOLD}projects{RESET}");
+    cprintln!("  {DIM}────────{RESET}");
     for (name, count) in &projects {
         let (r, w, e) = project_risk
             .get(name.as_str())
             .copied()
             .unwrap_or((0, 0, 0));
-        println!("  {BOLD}{count:>4}×{RESET} {name}  {DIM}r:{r} w:{w} e:{e}{RESET}");
+        cprintln!("  {BOLD}{count:>4}×{RESET} {name}  {DIM}r:{r} w:{w} e:{e}{RESET}");
     }
 }
 
@@ -264,20 +264,20 @@ pub(super) fn print_error_chart(err_events: &[&McpEvent]) {
     tool_list.sort_by(|a, b| b.1.cmp(&a.1));
 
     println!();
-    println!("  {BOLD}by tool{RESET}");
-    println!("  {DIM}───────{RESET}");
+    cprintln!("  {BOLD}by tool{RESET}");
+    cprintln!("  {DIM}───────{RESET}");
     for (tool, count) in &tool_list {
         let bar_len = (count * 20) / err_count.max(1);
         let bar: String = "█".repeat(bar_len.max(1));
-        println!("  {BOLD}{count:>4}×{RESET} {tool:<12} {RED}{bar}{RESET}");
+        cprintln!("  {BOLD}{count:>4}×{RESET} {tool:<12} {RED}{bar}{RESET}");
     }
 }
 
 pub(super) fn print_recent_errors(err_events: &[&McpEvent], key: Option<&[u8; 32]>) {
     let recent: Vec<&McpEvent> = err_events.iter().rev().take(10).copied().collect();
     println!();
-    println!("  {BOLD}recent errors{RESET} (last {})", recent.len());
-    println!("  {DIM}─────────────{RESET}");
+    cprintln!("  {BOLD}recent errors{RESET} (last {})", recent.len());
+    cprintln!("  {DIM}─────────────{RESET}");
     for e in &recent {
         let badge = client_badge(&e.server);
         let time = e
@@ -294,9 +294,9 @@ pub(super) fn print_recent_errors(err_events: &[&McpEvent], key: Option<&[u8; 32
             _ => String::new(),
         };
 
-        println!("  {badge} {DIM}{time}{RESET}  {BRIGHT_RED}✖{RESET} {tool_name} {arg_display}");
+        cprintln!("  {badge} {DIM}{time}{RESET}  {BRIGHT_RED}✖{RESET} {tool_name} {arg_display}");
         if !err_msg.is_empty() {
-            println!("    {DIM}{err_msg}{RESET}");
+            cprintln!("    {DIM}{err_msg}{RESET}");
         }
     }
 }

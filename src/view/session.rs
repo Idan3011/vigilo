@@ -1,7 +1,7 @@
 use super::data::{cursor_session_tokens, load_sessions, LoadFilter};
 use super::fmt::{
-    client_badge, diff_badge, fmt_arg, fmt_cost, fmt_tokens, normalize_model, risk_decorated,
-    risk_label, short_id, trunc, BOLD, BRIGHT_RED, CYAN, DIM, RESET,
+    client_badge, cprintln, diff_badge, fmt_arg, fmt_cost, fmt_tokens, normalize_model,
+    risk_decorated, risk_label, short_id, trunc, BOLD, BRIGHT_RED, CYAN, DIM, RESET,
 };
 use super::{ViewArgs, COLLAPSE_HEAD, COLLAPSE_TAIL};
 use crate::{
@@ -60,11 +60,11 @@ fn print_session_header(sid: &str, first: &McpEvent) {
         .replace('T', " ");
 
     println!();
-    println!(" {badge}  {BOLD}{sid_short}{RESET}  {DIM}{ts_header}{RESET}");
+    cprintln!(" {badge}  {BOLD}{sid_short}{RESET}  {DIM}{ts_header}{RESET}");
 
     let project_line = format_project_line(&first.project);
     if !project_line.is_empty() {
-        println!("{project_line}");
+        cprintln!("{project_line}");
     }
 }
 
@@ -96,7 +96,7 @@ fn print_session_events(
 ) {
     if let Some(last_tok) = events.iter().rev().find(|e| e.model.is_some()) {
         let model_str = normalize_model(last_tok.model.as_deref().unwrap_or("unknown"));
-        println!(" │  {DIM}{model_str}{RESET}");
+        cprintln!(" │  {DIM}{model_str}{RESET}");
     }
 
     let visible: Vec<&McpEvent> = events
@@ -111,7 +111,7 @@ fn print_session_events(
     for (i, e) in visible.iter().enumerate() {
         if collapse && i == COLLAPSE_HEAD {
             let hidden = total_visible - COLLAPSE_HEAD - COLLAPSE_TAIL;
-            println!(" │  {DIM}··· {hidden} more calls ···{RESET}");
+            cprintln!(" │  {DIM}··· {hidden} more calls ···{RESET}");
         }
         if collapse && i >= COLLAPSE_HEAD && i < total_visible - COLLAPSE_TAIL {
             continue;
@@ -138,7 +138,7 @@ fn print_event_row(e: &McpEvent, key: Option<&[u8; 32]>, project_root: Option<&s
     } else {
         String::new()
     };
-    println!(" │  {DIM}{time}{RESET}  {risk_sym} {tool_name} {arg_display}{diff}{dur}{timeout}");
+    cprintln!(" │  {DIM}{time}{RESET}  {risk_sym} {tool_name} {arg_display}{diff}{dur}{timeout}");
 }
 
 fn print_session_footer(
@@ -173,7 +173,7 @@ fn print_session_footer(
     } else {
         String::new()
     };
-    println!(
+    cprintln!(
         " {DIM}└─ {} calls · r:{reads} w:{writes} e:{execs}{}{}{dur_str}{RESET}",
         events.len(),
         err_str,
@@ -203,7 +203,7 @@ fn print_footer_tokens(
         } else {
             String::new()
         };
-        println!(
+        cprintln!(
             "    {DIM}tokens: {} in · {} out{cache_str}{cost_str}{RESET}",
             fmt_tokens(sum_in),
             fmt_tokens(sum_out)
@@ -219,7 +219,7 @@ fn print_footer_tokens(
         } else {
             String::new()
         };
-        println!(
+        cprintln!(
             "    {DIM}tokens: {} in · {} out{cache_str}{cost_str} ({} reqs){RESET}",
             fmt_tokens(ct.input_tokens),
             fmt_tokens(ct.output_tokens),
@@ -242,12 +242,12 @@ pub fn sessions(ledger_path: &str, args: ViewArgs) -> Result<()> {
     }
 
     if sessions.is_empty() {
-        println!("\n  {DIM}no sessions found.{RESET}\n");
+        cprintln!("\n  {DIM}no sessions found.{RESET}\n");
         return Ok(());
     }
 
     println!();
-    println!(
+    cprintln!(
         "{DIM}── {} sessions ─────────────────────────────────{RESET}",
         sessions.len()
     );
@@ -281,7 +281,7 @@ fn print_session_list_row(sid: &str, events: &[McpEvent]) {
     let project_display = trunc(project, 20);
     let total_us: u64 = events.iter().map(|e| e.duration_us).sum();
 
-    println!(
+    cprintln!(
         "  {badge}  {DIM}{sid_short}{RESET}  {DIM}{date}{RESET}  {CYAN}{project_display:<20}{RESET}  {BOLD}{:>4}{RESET} calls  {}",
         events.len(),
         models::fmt_duration(total_us)
@@ -332,7 +332,7 @@ fn print_tail_row(e: &McpEvent, sid: &str, key: Option<&[u8; 32]>) {
     let diff = diff_badge(e.diff.as_deref());
     let sid_short = &sid[..8.min(sid.len())];
 
-    println!(
+    cprintln!(
         "  {DIM}{date_time}{RESET}  {risk_sym} {tool_name} {arg_display:<30}{diff}    {badge}  {DIM}{sid_short}{RESET}"
     );
 }

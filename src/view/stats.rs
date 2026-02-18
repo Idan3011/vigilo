@@ -3,7 +3,9 @@ use super::counts::{
     print_recent_errors, print_tool_file_table, EventCounts,
 };
 use super::data::{load_sessions, LoadFilter};
-use super::fmt::{fmt_cost, fmt_tokens, BOLD, BRIGHT_RED, CYAN, DIM, GREEN, RED, RESET, YELLOW};
+use super::fmt::{
+    cprintln, fmt_cost, fmt_tokens, BOLD, BRIGHT_RED, CYAN, DIM, GREEN, RED, RESET, YELLOW,
+};
 use crate::{
     crypto,
     models::{self, McpEvent, Outcome},
@@ -51,16 +53,18 @@ fn print_stats_header(session_count: usize, c: &EventCounts) {
         " · 0 errors".to_string()
     };
     println!();
-    println!("{DIM}── vigilo stats ────────────────────────────────{RESET}");
+    cprintln!("{DIM}── vigilo stats ────────────────────────────────{RESET}");
     println!();
-    println!(
+    cprintln!(
         "  {BOLD}{session_count}{RESET} sessions · {BOLD}{}{RESET} calls{err_display} · {} total",
         c.total,
         models::fmt_duration(c.total_us)
     );
-    println!(
+    cprintln!(
         "  risk: {CYAN}{} read{RESET} · {YELLOW}{} write{RESET} · {RED}{} exec{RESET}",
-        c.reads, c.writes, c.execs
+        c.reads,
+        c.writes,
+        c.execs
     );
 }
 
@@ -81,7 +85,7 @@ pub fn errors(ledger_path: &str, since: Option<&str>, until: Option<&str>) -> Re
         .collect();
 
     if err_events.is_empty() {
-        println!("\n  {GREEN}No errors found.{RESET}\n");
+        cprintln!("\n  {GREEN}No errors found.{RESET}\n");
         return Ok(());
     }
 
@@ -94,9 +98,9 @@ pub fn errors(ledger_path: &str, since: Option<&str>, until: Option<&str>) -> Re
     };
 
     println!();
-    println!("{DIM}── vigilo errors ───────────────────────────────{RESET}");
+    cprintln!("{DIM}── vigilo errors ───────────────────────────────{RESET}");
     println!();
-    println!("  {BRIGHT_RED}{err_count}{RESET} errors out of {total} calls ({pct}%)");
+    cprintln!("  {BRIGHT_RED}{err_count}{RESET} errors out of {total} calls ({pct}%)");
 
     print_error_chart(&err_events);
     print_recent_errors(&err_events, key.as_ref());
@@ -119,7 +123,7 @@ pub fn summary(ledger_path: &str) -> Result<()> {
     let sessions = load_sessions(ledger_path, &filter)?;
 
     if sessions.is_empty() {
-        println!("\n  {DIM}no sessions today.{RESET}\n");
+        cprintln!("\n  {DIM}no sessions today.{RESET}\n");
         return Ok(());
     }
 
@@ -132,7 +136,7 @@ pub fn summary(ledger_path: &str) -> Result<()> {
 
     let active_projects = collect_active_projects(&sessions);
     if !active_projects.is_empty() {
-        println!(
+        cprintln!(
             "  active: {CYAN}{}{RESET}",
             active_projects.join(&format!("{RESET} · {CYAN}"))
         );
@@ -149,16 +153,18 @@ fn print_summary_body(session_count: usize, c: &EventCounts) {
         "0 errors".to_string()
     };
     println!();
-    println!("{DIM}── today ───────────────────────────────────────{RESET}");
+    cprintln!("{DIM}── today ───────────────────────────────────────{RESET}");
     println!();
-    println!(
+    cprintln!(
         "  {BOLD}{session_count}{RESET} sessions · {BOLD}{}{RESET} calls · {err_str} · {}",
         c.total,
         models::fmt_duration(c.total_us)
     );
-    println!(
+    cprintln!(
         "  risk: {CYAN}{} read{RESET} · {YELLOW}{} write{RESET} · {RED}{} exec{RESET}",
-        c.reads, c.writes, c.execs
+        c.reads,
+        c.writes,
+        c.execs
     );
 }
 
@@ -176,7 +182,7 @@ fn print_summary_tokens(c: &EventCounts) {
     } else {
         String::new()
     };
-    println!(
+    cprintln!(
         "  tokens: {} in · {} out{cache_str}{cost_str}",
         fmt_tokens(c.total_in),
         fmt_tokens(c.total_out)

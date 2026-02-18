@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Default)]
 pub struct McpEvent {
     pub id: Uuid,
     pub timestamp: String,
@@ -61,12 +61,21 @@ pub enum Outcome {
     Err { code: i32, message: String },
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq)]
+impl Default for Outcome {
+    fn default() -> Self {
+        Outcome::Ok {
+            result: serde_json::Value::Null,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum Risk {
     Read,
     Write,
     Exec,
+    #[default]
     Unknown,
 }
 

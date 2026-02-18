@@ -154,4 +154,37 @@ mod tests {
         let result = append_event(&event, dir.path().to_str().unwrap());
         assert!(result.is_err());
     }
+
+    #[test]
+    fn append_event_triggers_rotation_over_10mb() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let path = dir.path().join("events.jsonl");
+        let path_str = path.to_str().unwrap();
+
+        let big_data = "x".repeat(8192);
+        let count = (10 * 1024 * 1024) / 8300 + 100;
+        for i in 0..count {
+            let event = TestEvent {
+                id: i.to_string(),
+                data: big_data.clone(),
+            };
+            append_event(&event, path_str).expect("append should succeed");
+        }
+
+        let active_size = fs::metadata(&path).expect("active file").len();
+        assert!(
+            active_size < 1024 * 1024,
+            "active ledger should be small after rotation, got {active_size}"
+        );
+
+        let rotated: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| {
+                let name = e.file_name().to_string_lossy().to_string();
+                name.starts_with("events.") && name.ends_with(".jsonl") && name != "events.jsonl"
+            })
+            .collect();
+        assert!(!rotated.is_empty(), "expected at least 1 rotated file");
+    }
 }

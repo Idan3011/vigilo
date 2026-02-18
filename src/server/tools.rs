@@ -104,6 +104,8 @@ async fn execute_search_files(args: &serde_json::Value) -> Result<String, String
     search(path, pattern, use_regex).await
 }
 
+const MAX_OUTPUT_BYTES: usize = 1_048_576;
+
 async fn execute_run_command(args: &serde_json::Value) -> Result<String, String> {
     let command = arg_str(args, "command")?;
     let mut cmd = tokio::process::Command::new("sh");
@@ -112,14 +114,22 @@ async fn execute_run_command(args: &serde_json::Value) -> Result<String, String>
         cmd.current_dir(cwd);
     }
     let output = cmd.output().await.map_err(|e| e.to_string())?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     let exit_code = output.status.code().unwrap_or(-1);
     if output.status.success() {
-        Ok(stdout.into_owned())
+        Ok(cap_output(&output.stdout))
     } else {
         Err(format!("exit {exit_code}\n{stderr}"))
     }
+}
+
+fn cap_output(bytes: &[u8]) -> String {
+    if bytes.len() <= MAX_OUTPUT_BYTES {
+        return String::from_utf8_lossy(bytes).into_owned();
+    }
+    let truncated = String::from_utf8_lossy(&bytes[..MAX_OUTPUT_BYTES]).into_owned();
+    let omitted = bytes.len() - MAX_OUTPUT_BYTES;
+    format!("{truncated}\n\n[output truncated — {omitted} bytes omitted]")
 }
 
 async fn execute_get_file_info(args: &serde_json::Value) -> Result<String, String> {
@@ -251,6 +261,8 @@ async fn execute_patch_file(args: &serde_json::Value) -> Result<String, String> 
     }
 }
 
+const MAX_SEARCH_DEPTH: u32 = 12;
+
 async fn search(root: &str, pattern: &str, use_regex: bool) -> Result<String, String> {
     let re = if use_regex {
         Some(regex::Regex::new(pattern).map_err(|e| format!("invalid regex: {e}"))?)
@@ -258,7 +270,7 @@ async fn search(root: &str, pattern: &str, use_regex: bool) -> Result<String, St
         None
     };
     let mut matches = Vec::new();
-    search_dir(root, pattern, &re, &mut matches).await?;
+    search_dir(root, pattern, &re, &mut matches, 0).await?;
     if matches.is_empty() {
         Ok(format!("no matches for '{pattern}'"))
     } else {
@@ -285,7 +297,11 @@ async fn search_dir(
     pattern: &str,
     re: &Option<regex::Regex>,
     matches: &mut Vec<String>,
+    depth: u32,
 ) -> Result<(), String> {
+    if depth > MAX_SEARCH_DEPTH {
+        return Ok(());
+    }
     let mut entries = tokio::fs::read_dir(dir).await.map_err(|e| e.to_string())?;
     while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
         let path = entry.path();
@@ -301,6 +317,7 @@ async fn search_dir(
                 pattern,
                 re,
                 matches,
+                depth + 1,
             ))
             .await?;
         } else if meta.is_file() {

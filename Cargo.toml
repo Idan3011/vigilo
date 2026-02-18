@@ -22,6 +22,7 @@ regex = "1"
 similar = { version = "2", features = ["text"] }
 rusqlite = { version = "0.31", features = ["bundled"] }
 reqwest = { version = "0.12", features = ["json", "cookies"] }
+atty = "0.2"
 
 [dev-dependencies]
 tempfile = "3"

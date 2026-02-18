@@ -157,7 +157,6 @@ fn build_claude_event(
         project,
         tag,
         diff,
-        timed_out: false,
         model: tmeta.model.clone(),
         input_tokens: tmeta.input_tokens,
         output_tokens: tmeta.output_tokens,
@@ -167,8 +166,7 @@ fn build_claude_event(
         service_tier: tmeta.service_tier.clone(),
         permission_mode: payload["permission_mode"].as_str().map(|s| s.to_string()),
         tool_use_id: tool_use_id_str.map(|s| s.to_string()),
-        cursor_version: None,
-        generation_id: None,
+        ..Default::default()
     }
 }
 
@@ -347,26 +345,16 @@ fn build_cursor_event(
         server: "cursor".to_string(),
         tool: tool_name,
         arguments,
-        outcome: Outcome::Ok {
-            result: serde_json::Value::Null,
-        },
         duration_us,
         risk,
         project,
         tag,
         diff,
-        timed_out: false,
         model,
-        input_tokens: None,
-        output_tokens: None,
-        cache_read_tokens: None,
-        cache_write_tokens: None,
-        stop_reason: None,
-        service_tier: None,
-        permission_mode: None,
         tool_use_id: payload["tool_use_id"].as_str().map(|s| s.to_string()),
         cursor_version: payload["cursor_version"].as_str().map(|s| s.to_string()),
         generation_id: payload["generation_id"].as_str().map(|s| s.to_string()),
+        ..Default::default()
     }
 }
 

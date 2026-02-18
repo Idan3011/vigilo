@@ -1,8 +1,8 @@
 use super::data::{load_sessions, LoadFilter};
 use super::fmt::{
-    client_badge, diff_badge, diff_summary, fmt_arg, maybe_decrypt, print_colored_diff,
-    risk_decorated, risk_label, short_id, short_path, trunc, BOLD, BRIGHT_RED, CYAN, DIM, GREEN,
-    RED, RESET,
+    ceprintln, client_badge, cprintln, diff_badge, diff_summary, fmt_arg, maybe_decrypt,
+    print_colored_diff, risk_decorated, risk_label, short_id, short_path, trunc, BOLD, BRIGHT_RED,
+    CYAN, DIM, GREEN, RED, RESET,
 };
 use super::ViewArgs;
 use crate::{
@@ -42,7 +42,7 @@ pub fn query(
     }
 
     println!();
-    println!(
+    cprintln!(
         "{DIM}── {} matching events ──────────────────────────{RESET}",
         events.len()
     );
@@ -77,7 +77,7 @@ fn print_query_row(e: &McpEvent, key: Option<&[u8; 32]>) {
     let sid_str = e.session_id.to_string();
     let sid_short = short_id(&sid_str);
 
-    println!(" {badge}  {DIM}{time}{RESET}  {risk_sym} {tool_name} {arg_display}{diff}{dur}{timeout}  {DIM}{sid_short}{RESET}");
+    cprintln!(" {badge}  {DIM}{time}{RESET}  {risk_sym} {tool_name} {arg_display}{diff}{dur}{timeout}  {DIM}{sid_short}{RESET}");
 }
 
 pub fn diff(ledger_path: &str, args: &ViewArgs) -> Result<()> {
@@ -130,13 +130,13 @@ fn print_diff_session(sid: &str, events: &[McpEvent], key: Option<&[u8; 32]>) {
     }
 
     println!();
-    println!("{DIM}── vigilo diff ── {RESET}{badge} {BOLD}{sid_short}{RESET} {DIM}────────────────────────{RESET}");
+    cprintln!("{DIM}── vigilo diff ── {RESET}{badge} {BOLD}{sid_short}{RESET} {DIM}────────────────────────{RESET}");
     if let Some(name) = first.project.name.as_deref() {
         let branch = first.project.branch.as_deref().unwrap_or("");
         if !branch.is_empty() {
-            println!("  {CYAN}{name}{RESET} · {CYAN}{branch}{RESET}");
+            cprintln!("  {CYAN}{name}{RESET} · {CYAN}{branch}{RESET}");
         } else {
-            println!("  {CYAN}{name}{RESET}");
+            cprintln!("  {CYAN}{name}{RESET}");
         }
     }
 
@@ -153,7 +153,7 @@ fn print_diff_session(sid: &str, events: &[McpEvent], key: Option<&[u8; 32]>) {
     let file_word = if file_count == 1 { "file" } else { "files" };
     let edit_word = if edits.len() == 1 { "edit" } else { "edits" };
     println!();
-    println!(
+    cprintln!(
         "  {DIM}── {}{RESET} {DIM}{edit_word} across{RESET} {BOLD}{file_count}{RESET} {DIM}{file_word}{RESET} · {GREEN}+{total_added}{RESET} {RED}-{total_removed}{RESET} {DIM}net ──{RESET}",
         edits.len()
     );
@@ -186,10 +186,10 @@ fn print_diff_file(path: &str, file_edits: &[&McpEvent]) -> (usize, usize) {
     };
 
     println!();
-    println!(
+    cprintln!(
         "  {BOLD}{path}{RESET}  {DIM}({edit_count} {edit_word}){RESET}{new_badge}{change_str}"
     );
-    println!("  {DIM}{}─{RESET}", "─".repeat(path.len().max(10)));
+    cprintln!("  {DIM}{}─{RESET}", "─".repeat(path.len().max(10)));
 
     for e in file_edits {
         print_diff_edit(e);
@@ -214,7 +214,7 @@ fn print_diff_edit(e: &McpEvent) {
         _ => String::new(),
     };
 
-    println!("  {DIM}{time}{RESET}  {BOLD}{tool}{RESET}{mini_badge}");
+    cprintln!("  {DIM}{time}{RESET}  {BOLD}{tool}{RESET}{mini_badge}");
 
     if !crypto::is_encrypted(diff_text) && diff_text != "new file" {
         print_colored_diff(diff_text);
@@ -303,7 +303,7 @@ pub async fn watch(ledger_path: &str) -> Result<()> {
     file.seek(SeekFrom::End(0))?;
 
     let key = crypto::load_key();
-    println!("{DIM}[vigilo]{RESET} watching — ctrl+c to stop");
+    cprintln!("{DIM}[vigilo]{RESET} watching — ctrl+c to stop");
     println!();
 
     loop {
@@ -336,7 +336,7 @@ async fn wait_for_ledger(ledger_path: &str) -> File {
         match File::open(ledger_path) {
             Ok(f) => break f,
             Err(_) => {
-                eprintln!("{DIM}[vigilo] waiting for ledger at {ledger_path}...{RESET}");
+                ceprintln!("{DIM}[vigilo] waiting for ledger at {ledger_path}...{RESET}");
                 tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
             }
         }
@@ -364,7 +364,7 @@ fn print_watch_event(e: &McpEvent, key: Option<&[u8; 32]>) {
         String::new()
     };
 
-    println!(
+    cprintln!(
         " {badge}  {DIM}{time}{RESET}  {risk_sym} {tool_name} {arg_display}{diff}{dur}{timeout}"
     );
 }

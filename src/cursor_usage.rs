@@ -2,7 +2,10 @@ use anyhow::{Context, Result};
 use std::collections::HashMap;
 use std::path::Path;
 
-use crate::view::fmt::{BG_MAGENTA, BOLD, CYAN, DIM, GREEN, RED, RESET, WHITE, YELLOW};
+use crate::view::fmt::{
+    ceprint, ceprintln, cprintln, fmt_tokens, normalize_model, BG_MAGENTA, BOLD, CYAN, DIM, GREEN,
+    RED, RESET, WHITE, YELLOW,
+};
 
 #[derive(Debug, PartialEq)]
 enum Platform {
@@ -327,7 +330,7 @@ async fn fetch_all_events(
     let page_size = 100u32;
     let frames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-    eprint!("  {DIM}{} fetching usage data...{RESET}", frames[0]);
+    ceprint!("  {DIM}{} fetching usage data...{RESET}", frames[0]);
 
     loop {
         let data = fetch_events(client, creds, start_ms, end_ms, page, page_size).await?;
@@ -337,7 +340,7 @@ async fn fetch_all_events(
                 all.extend(arr.iter().cloned());
                 let total = data["totalUsageEventsCount"].as_u64().unwrap_or(0);
                 let frame = frames[page as usize % frames.len()];
-                eprint!(
+                ceprint!(
                     "\r  {DIM}{frame} fetching usage data... {}/{total}{RESET}  ",
                     all.len()
                 );
@@ -349,26 +352,11 @@ async fn fetch_all_events(
             _ => break,
         }
     }
-    eprint!(
+    ceprint!(
         "\r  {DIM}✓ fetched {} events{RESET}              \n",
         all.len()
     );
     Ok(all)
-}
-
-fn normalize_model(m: &str) -> String {
-    match m {
-        "default" | "auto" => "Auto".to_string(),
-        other => other.to_string(),
-    }
-}
-
-fn fmt_tokens(n: u64) -> String {
-    match n {
-        n if n >= 1_000_000 => format!("{:.1}M", n as f64 / 1_000_000.0),
-        n if n >= 1_000 => format!("{}K", n / 1_000),
-        n => n.to_string(),
-    }
 }
 
 fn fmt_cost_cents(cents: f64) -> String {
@@ -387,7 +375,7 @@ fn print_summary(summary: &serde_json::Value) {
 
     let s = start.get(5..10).unwrap_or(start);
     let e = end.get(5..10).unwrap_or(end);
-    println!("  {DIM}billing: {s}{RESET} → {DIM}{e}{RESET}  {DIM}({kind}){RESET}");
+    cprintln!("  {DIM}billing: {s}{RESET} → {DIM}{e}{RESET}  {DIM}({kind}){RESET}");
 
     let plan = &summary["individualUsage"]["plan"];
     if plan.is_object() {
@@ -402,7 +390,7 @@ fn print_summary(summary: &serde_json::Value) {
         } else {
             GREEN
         };
-        println!("  {DIM}plan:{RESET} {BOLD}{used}{RESET}/{limit} requests  {DIM}({remaining} remaining){RESET}  {color}{pct:.0}%{RESET}");
+        cprintln!("  {DIM}plan:{RESET} {BOLD}{used}{RESET}/{limit} requests  {DIM}({remaining} remaining){RESET}  {color}{pct:.0}%{RESET}");
     }
 
     let od = &summary["individualUsage"]["onDemand"];
@@ -412,7 +400,9 @@ fn print_summary(summary: &serde_json::Value) {
             .as_u64()
             .map(|l| l.to_string())
             .unwrap_or_else(|| "unlimited".to_string());
-        println!("  {DIM}on-demand:{RESET} {BOLD}{used}{RESET} used  {DIM}(limit: {limit}){RESET}");
+        cprintln!(
+            "  {DIM}on-demand:{RESET} {BOLD}{used}{RESET} used  {DIM}(limit: {limit}){RESET}"
+        );
     }
 }
 
@@ -424,21 +414,21 @@ fn print_events(events: &[serde_json::Value], since_days: u32) {
         let t = TokenTotals::from_event(ev);
         totals.merge(&t);
         by_model
-            .entry(normalize_model(ev["model"].as_str().unwrap_or("unknown")))
+            .entry(normalize_model(ev["model"].as_str().unwrap_or("unknown")).to_string())
             .or_default()
             .merge(&t);
     }
 
     println!();
-    println!("{DIM}── token usage ({since_days}d) ─────────────────────────────{RESET}");
+    cprintln!("{DIM}── token usage ({since_days}d) ─────────────────────────────{RESET}");
     println!();
-    println!("  {BOLD}{}{RESET} requests", totals.count);
-    println!("  {CYAN}{}{RESET} input · {CYAN}{}{RESET} output · {DIM}{} cache read · {} cache write{RESET}",
+    cprintln!("  {BOLD}{}{RESET} requests", totals.count);
+    cprintln!("  {CYAN}{}{RESET} input · {CYAN}{}{RESET} output · {DIM}{} cache read · {} cache write{RESET}",
         fmt_tokens(totals.input), fmt_tokens(totals.output),
         fmt_tokens(totals.cache_read), fmt_tokens(totals.cache_write));
 
     if totals.cost_cents > 0.0 {
-        println!(
+        cprintln!(
             "  {YELLOW}{}{RESET} total cost",
             fmt_cost_cents(totals.cost_cents)
         );
@@ -452,8 +442,8 @@ fn print_model_breakdown(by_model: HashMap<String, TokenTotals>) {
     models.sort_by(|a, b| b.1.count.cmp(&a.1.count));
 
     println!();
-    println!("  {BOLD}by model{RESET}");
-    println!("  {DIM}────────{RESET}");
+    cprintln!("  {BOLD}by model{RESET}");
+    cprintln!("  {DIM}────────{RESET}");
     for (model, t) in &models {
         let cost = if t.cost_cents > 0.0 {
             format!(" · {}", fmt_cost_cents(t.cost_cents))
@@ -465,7 +455,7 @@ fn print_model_breakdown(by_model: HashMap<String, TokenTotals>) {
         } else {
             String::new()
         };
-        println!(
+        cprintln!(
             "  {BOLD}{:>4}×{RESET} {model}  {DIM}{} in · {} out{cache}{cost}{RESET}",
             t.count,
             fmt_tokens(t.input),
@@ -548,7 +538,7 @@ impl CachedTokenEvent {
         let tok = &ev["tokenUsage"];
         Some(Self {
             timestamp_ms,
-            model: normalize_model(ev["model"].as_str().unwrap_or("unknown")),
+            model: normalize_model(ev["model"].as_str().unwrap_or("unknown")).to_string(),
             input_tokens: tok["inputTokens"].as_u64().unwrap_or(0),
             output_tokens: tok["outputTokens"].as_u64().unwrap_or(0),
             cache_read_tokens: tok["cacheReadTokens"].as_u64().unwrap_or(0),
@@ -642,7 +632,7 @@ pub async fn sync(since_days: u32) -> Result<()> {
     let events = fetch_all_events(&client, &creds, start_ms, now_ms).await?;
 
     write_cache(&events)?;
-    println!(
+    cprintln!(
         "  {DIM}synced {} events to {}{RESET}",
         events.len(),
         cache_path()
@@ -659,13 +649,13 @@ pub async fn run(since_days: u32) -> Result<()> {
     let membership = creds.membership.as_deref().unwrap_or("unknown");
 
     println!();
-    println!(" {badge}  {BOLD}{email}{RESET}  {DIM}({membership}){RESET}");
+    cprintln!(" {badge}  {BOLD}{email}{RESET}  {DIM}({membership}){RESET}");
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
 
-    eprint!("  {DIM}⠋ connecting to cursor.com...{RESET}");
+    ceprint!("  {DIM}⠋ connecting to cursor.com...{RESET}");
     match fetch_summary(&client, &creds).await {
         Ok(s) => {
             eprint!("\r                                    \r");
@@ -673,7 +663,7 @@ pub async fn run(since_days: u32) -> Result<()> {
         }
         Err(e) => {
             eprint!("\r                                    \r");
-            eprintln!("  {DIM}usage-summary: {e}{RESET}");
+            ceprintln!("  {DIM}usage-summary: {e}{RESET}");
         }
     }
 
@@ -682,7 +672,7 @@ pub async fn run(since_days: u32) -> Result<()> {
     let events = fetch_all_events(&client, &creds, start_ms, now_ms).await?;
 
     if events.is_empty() {
-        println!("  {DIM}no usage events in the last {since_days} days{RESET}");
+        cprintln!("  {DIM}no usage events in the last {since_days} days{RESET}");
     } else {
         print_events(&events, since_days);
         write_cache(&events)?;

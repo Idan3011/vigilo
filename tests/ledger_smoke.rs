@@ -176,32 +176,22 @@ fn ledger_error_outcome_round_trips() {
 }
 
 #[test]
-fn ledger_rotation_trigger() {
+fn ledger_large_file_contains_valid_events() {
     let dir = tempfile::tempdir().unwrap();
     let ledger_path = dir.path().join("events.jsonl");
     let path_str = ledger_path.to_str().unwrap();
 
-    let big_content = "x".repeat(512);
+    let big_content = "x".repeat(4096);
     let session_id = uuid::Uuid::new_v4();
 
-    let count_needed = (10 * 1024 * 1024) / 600 + 100;
-    for _ in 0..count_needed {
+    let count = 500;
+    for _ in 0..count {
         let mut event = common::make_event(session_id, "read_file", "read");
         event.arguments = serde_json::json!({ "path": big_content });
-        let mut line = serde_json::to_string(&event).unwrap();
-        line.push('\n');
-        use std::io::Write;
-        let mut file = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(path_str)
-            .unwrap();
-        file.write_all(line.as_bytes()).unwrap();
+        append_event(&event, path_str);
     }
 
-    let file_size = fs::metadata(path_str).unwrap().len();
-    assert!(
-        file_size > 10 * 1024 * 1024,
-        "ledger should exceed 10MB for rotation test, got {file_size}"
-    );
+    let events = read_events(path_str);
+    assert_eq!(events.len(), count);
+    assert!(events.iter().all(|e| e.tool == "read_file"));
 }

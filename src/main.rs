@@ -18,7 +18,13 @@ async fn main() -> Result<()> {
     let ledger_path =
         std::env::var("VIGILO_LEDGER").unwrap_or_else(|_| format!("{home}/.vigilo/events.jsonl"));
 
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let raw_args: Vec<String> = std::env::args().skip(1).collect();
+
+    if raw_args.iter().any(|a| a == "--no-color") {
+        std::env::set_var("NO_COLOR", "1");
+    }
+
+    let args: Vec<String> = raw_args.into_iter().filter(|a| a != "--no-color").collect();
 
     if args.iter().any(|a| a == "--help" || a == "-h")
         || args.first().map(|s| s.as_str()) == Some("help")
@@ -192,7 +198,8 @@ fn print_help_options() {
     println!("  --tool <name>     Filter by tool name (view and query)");
     println!("  --session <pfx>   Filter by session UUID prefix");
     println!("  --last <n>        Show only the last N sessions");
-    println!("  --expand          Show all events (default: first 5 + last 5 per session)\n");
+    println!("  --expand          Show all events (default: first 5 + last 5 per session)");
+    println!("  --no-color        Disable colored output (also respects NO_COLOR env)\n");
     println!("CURSOR-USAGE OPTIONS:");
     println!("  --since-days <n>  Number of days to look back (default: 30)");
     println!("  --sync            Fetch and cache token data without printing\n");

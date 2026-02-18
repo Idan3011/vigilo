@@ -2,6 +2,68 @@ use crate::{
     crypto,
     models::{McpEvent, Risk},
 };
+use std::sync::OnceLock;
+
+static COLOR: OnceLock<bool> = OnceLock::new();
+
+pub(crate) fn use_color() -> bool {
+    *COLOR.get_or_init(|| std::env::var("NO_COLOR").is_err() && atty::is(atty::Stream::Stdout))
+}
+
+pub(crate) fn strip_ansi(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut in_esc = false;
+    for ch in s.chars() {
+        if in_esc {
+            if ch == 'm' {
+                in_esc = false;
+            }
+        } else if ch == '\x1b' {
+            in_esc = true;
+        } else {
+            out.push(ch);
+        }
+    }
+    out
+}
+
+macro_rules! cprintln {
+    () => { println!() };
+    ($($arg:tt)*) => {{
+        let s = format!($($arg)*);
+        if $crate::view::fmt::use_color() {
+            println!("{s}");
+        } else {
+            println!("{}", $crate::view::fmt::strip_ansi(&s));
+        }
+    }};
+}
+pub(crate) use cprintln;
+
+macro_rules! ceprintln {
+    () => { eprintln!() };
+    ($($arg:tt)*) => {{
+        let s = format!($($arg)*);
+        if $crate::view::fmt::use_color() {
+            eprintln!("{s}");
+        } else {
+            eprintln!("{}", $crate::view::fmt::strip_ansi(&s));
+        }
+    }};
+}
+pub(crate) use ceprintln;
+
+macro_rules! ceprint {
+    ($($arg:tt)*) => {{
+        let s = format!($($arg)*);
+        if $crate::view::fmt::use_color() {
+            eprint!("{s}");
+        } else {
+            eprint!("{}", $crate::view::fmt::strip_ansi(&s));
+        }
+    }};
+}
+pub(crate) use ceprint;
 
 pub(crate) const RESET: &str = "\x1b[0m";
 pub(crate) const BOLD: &str = "\x1b[1m";
@@ -55,6 +117,7 @@ pub(crate) fn trunc(s: &str, max: usize) -> String {
 
 pub(crate) fn fmt_tokens(n: u64) -> String {
     match n {
+        n if n >= 1_000_000 => format!("{:.1}M", n as f64 / 1_000_000.0),
         n if n >= 1_000 => format!("{}K", n / 1_000),
         n => n.to_string(),
     }
@@ -179,11 +242,11 @@ pub(crate) fn diff_badge(diff: Option<&str>) -> String {
 pub(crate) fn print_colored_diff(diff_text: &str) {
     for line in diff_text.lines() {
         if line.starts_with('+') {
-            println!("    {GREEN}{line}{RESET}");
+            cprintln!("    {GREEN}{line}{RESET}");
         } else if line.starts_with('-') {
-            println!("    {RED}{line}{RESET}");
+            cprintln!("    {RED}{line}{RESET}");
         } else {
-            println!("    {DIM}{line}{RESET}");
+            cprintln!("    {DIM}{line}{RESET}");
         }
     }
 }

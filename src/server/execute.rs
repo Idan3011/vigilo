@@ -249,17 +249,7 @@ fn build_event(
         tag: tag.map(|t| t.to_string()),
         diff,
         timed_out,
-        model: None,
-        input_tokens: None,
-        output_tokens: None,
-        cache_read_tokens: None,
-        cache_write_tokens: None,
-        stop_reason: None,
-        service_tier: None,
-        permission_mode: None,
-        tool_use_id: None,
-        cursor_version: None,
-        generation_id: None,
+        ..Default::default()
     }
 }
 
