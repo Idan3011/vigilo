@@ -97,12 +97,16 @@ Fetches real per-request token usage directly from cursor.com. Cached locally so
 
 ## Installation
 
-Requires [Rust](https://rustup.rs/):
+```bash
+curl -fsSL https://raw.githubusercontent.com/Idan3011/vigilo/main/install.sh | bash
+```
+
+Downloads a pre-built binary for your platform (Linux x86_64, macOS x86_64/arm64). Falls back to building from source if no binary is available.
+
+**From source** (requires [Rust](https://rustup.rs/)):
 
 ```bash
-git clone https://github.com/user/vigilo.git
-cd vigilo
-cargo install --path .
+cargo install --git https://github.com/Idan3011/vigilo.git
 ```
 
 ---
@@ -176,6 +180,48 @@ Claude Code's built-in tools (Read, Write, Bash, Edit, etc.) don't go through MC
 ---
 
 ## Subcommands
+
+### Today at a glance
+
+```bash
+vigilo summary                            # sessions, calls, errors, tokens, cost — today only
+```
+
+```
+── today ───────────────────────────────────────
+
+  3 sessions · 127 calls · 0 errors · 42.1s
+  risk: 48 read · 39 write · 40 exec
+  tokens: 12K in · 3K out · cache: 89K read · ~$1.23
+  active: ai-observability · feature/render-deploy
+```
+
+### Session list
+
+```bash
+vigilo sessions                           # one line per session
+vigilo sessions --last 5                  # last 5 sessions
+vigilo sessions --since 1w               # sessions from the last week
+```
+
+```
+── 12 sessions ─────────────────────────────────
+
+  ░ CLAUDE ░  df66fc59  02-16 17:26  ai-observability     127 calls  42.1s
+  ░ CURSOR ░  a3b7e012  02-16 14:10  my-frontend           83 calls  18.3s
+```
+
+### Last N events
+
+```bash
+vigilo tail                               # last 20 events (flat, chronological)
+vigilo tail -n 50                         # last 50 events
+```
+
+```
+  02-16 17:27:01  ○ READ   Read     hook.rs              ░ CLAUDE ░  df66fc59
+  02-16 17:27:02  ◆ WRITE  Edit     hook.rs    +12 -3    ░ CLAUDE ░  df66fc59
+```
 
 ### Viewing events
 
@@ -367,16 +413,28 @@ Append-only JSONL at `~/.vigilo/events.jsonl`. One event per line. Rotates at 10
 
 ```
 src/
-├── main.rs          CLI entry: dispatches subcommands
-├── server.rs        MCP JSON-RPC server over stdio; tool dispatch + ledger logging
-├── models.rs        McpEvent, Outcome, Risk, ProjectContext
-├── ledger.rs        Append-only JSONL writer with 10MB rotation
-├── view.rs          view, stats, errors, diff, query, watch, export
-├── cursor_usage.rs  Cursor token usage via local DB + cursor.com API
-├── hook.rs          Claude Code PostToolUse + Cursor hook processing
-├── setup.rs         Interactive setup wizard
-├── git.rs           Async git helpers (root, name, branch, commit, dirty)
-└── crypto.rs        AES-256-GCM encryption/decryption
+├── main.rs            CLI entry: dispatches subcommands
+├── server/
+│   ├── mod.rs         MCP JSON-RPC server over stdio
+│   ├── execute.rs     Tool dispatch, ledger logging, encryption
+│   ├── tools.rs       14 tool implementations (fs, git, shell)
+│   └── schema.rs      Tool JSON schemas for tools/list
+├── view/
+│   ├── mod.rs         View entry point and shared helpers
+│   ├── stats.rs       Stats, errors, summary subcommands
+│   ├── counts.rs      Event aggregation and section printers
+│   ├── session.rs     Session list, detail, and tail views
+│   ├── search.rs      Query, diff, watch, CSV export
+│   ├── data.rs        Ledger loading and event filtering
+│   └── fmt.rs         Shared formatting (colors, duration, tokens)
+├── hook.rs            Claude Code PostToolUse + Cursor hook processing
+├── hook_helpers.rs    Shared hook utilities (events, transcripts, diffs)
+├── models.rs          McpEvent, Outcome, Risk, ProjectContext
+├── ledger.rs          Append-only JSONL writer with 10MB rotation
+├── cursor_usage.rs    Cursor token usage via local DB + cursor.com API
+├── setup.rs           Interactive setup wizard
+├── git.rs             Async git helpers (root, name, branch, commit, dirty)
+└── crypto.rs          AES-256-GCM encryption/decryption
 ```
 
 ## Design principles
