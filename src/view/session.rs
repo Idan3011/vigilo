@@ -1,7 +1,8 @@
 use super::data::{cursor_session_tokens, load_sessions, LoadFilter};
 use super::fmt::{
     client_badge, cprintln, diff_badge, fmt_arg, fmt_cost, fmt_tokens, normalize_model,
-    risk_decorated, risk_label, short_id, trunc, BOLD, BRIGHT_RED, CYAN, DIM, RESET,
+    risk_decorated, risk_label, session_cost_usd, short_id, trunc, BOLD, BRIGHT_RED, CYAN, DIM,
+    RESET, YELLOW,
 };
 use super::{ViewArgs, COLLAPSE_HEAD, COLLAPSE_TAIL};
 use crate::{
@@ -280,9 +281,15 @@ fn print_session_list_row(sid: &str, events: &[McpEvent]) {
         .unwrap_or("—");
     let project_display = trunc(project, 20);
     let total_us: u64 = events.iter().map(|e| e.duration_us).sum();
+    let cost = session_cost_usd(events);
+    let cost_str = if cost > 0.0 {
+        format!("  {YELLOW}~{}{RESET}", fmt_cost(cost))
+    } else {
+        String::new()
+    };
 
     cprintln!(
-        "  {badge}  {DIM}{sid_short}{RESET}  {DIM}{date}{RESET}  {CYAN}{project_display:<20}{RESET}  {BOLD}{:>4}{RESET} calls  {}",
+        "  {badge}  {DIM}{sid_short}{RESET}  {DIM}{date}{RESET}  {CYAN}{project_display:<20}{RESET}  {BOLD}{:>4}{RESET} calls  {}{cost_str}",
         events.len(),
         models::fmt_duration(total_us)
     );
