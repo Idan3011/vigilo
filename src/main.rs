@@ -1,5 +1,6 @@
 mod crypto;
 mod cursor_usage;
+mod doctor;
 mod git;
 mod hook;
 mod hook_helpers;
@@ -37,6 +38,12 @@ async fn main() -> Result<()> {
         return result;
     }
 
+    if !args.is_empty() {
+        eprintln!("vigilo: unknown command '{}'\n", args[0]);
+        eprintln!("Run 'vigilo help' for usage.");
+        std::process::exit(1);
+    }
+
     let session_id = Uuid::new_v4();
     eprintln!("[vigilo] session={session_id}");
     eprintln!("[vigilo] ledger={ledger_path}");
@@ -60,6 +67,10 @@ async fn dispatch_subcommand(args: &[String], ledger_path: &str) -> Option<Resul
         Some("sessions") => Some(view::sessions(ledger_path, parse_view_args(&args[1..]))),
         Some("tail") => Some(dispatch_tail(&args[1..], ledger_path)),
         Some("export") => Some(dispatch_export(&args[1..], ledger_path)),
+        Some("doctor") => {
+            doctor::run(ledger_path);
+            Some(Ok(()))
+        }
         _ => None,
     }
 }
@@ -186,6 +197,8 @@ fn print_help_usage() {
     println!("  vigilo cursor-usage [OPTIONS]   Fetch real token usage from cursor.com");
     println!("  vigilo export [--format json]   Dump all events as CSV or JSON to stdout");
     println!("  vigilo hook                     Process a Claude Code PostToolUse hook event (reads stdin)");
+    println!("  vigilo doctor                   Check configuration and dependencies");
+    println!("  vigilo setup                    Interactive setup wizard");
     println!("  vigilo generate-key             Generate a base64 AES-256 encryption key");
     println!("  vigilo help                     Show this message\n");
 }
