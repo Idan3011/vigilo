@@ -36,7 +36,9 @@ impl LoadFilter<'_> {
     }
 }
 
-pub(super) fn all_ledger_files(ledger_path: &str) -> Vec<std::path::PathBuf> {
+/// Returns (path, rotation_timestamp_ms) for rotated files, sorted oldest first,
+/// with the active ledger file appended last (timestamp = u128::MAX).
+fn all_ledger_files_with_ts(ledger_path: &str) -> Vec<(std::path::PathBuf, u128)> {
     let path = std::path::Path::new(ledger_path);
     let parent = path.parent().unwrap_or(std::path::Path::new("."));
     let stem = path
@@ -68,33 +70,54 @@ pub(super) fn all_ledger_files(ledger_path: &str) -> Vec<std::path::PathBuf> {
         .collect();
 
     files.sort_by_key(|(_, ts)| *ts);
-    let mut result: Vec<std::path::PathBuf> = files.into_iter().map(|(p, _)| p).collect();
-    result.push(path.to_path_buf());
-    result
+    files.push((path.to_path_buf(), u128::MAX));
+    files
+}
+
+pub(super) fn all_ledger_files(ledger_path: &str) -> Vec<std::path::PathBuf> {
+    all_ledger_files_with_ts(ledger_path)
+        .into_iter()
+        .map(|(p, _)| p)
+        .collect()
+}
+
+/// Convert "YYYY-MM-DD" to epoch milliseconds (start of day UTC).
+fn date_to_epoch_ms(date: &str) -> Option<u128> {
+    let dt = chrono::NaiveDate::parse_from_str(date, "%Y-%m-%d").ok()?;
+    let ts = dt.and_hms_opt(0, 0, 0)?.and_utc().timestamp_millis();
+    Some(ts as u128)
 }
 
 pub(super) fn load_sessions(
     ledger_path: &str,
     filter: &LoadFilter,
 ) -> Result<Vec<(String, Vec<McpEvent>)>> {
-    let files = all_ledger_files(ledger_path);
-    let any_exists = files.iter().any(|f| f.exists());
+    let files = all_ledger_files_with_ts(ledger_path);
+    let any_exists = files.iter().any(|(f, _)| f.exists());
     if !any_exists {
         return Err(anyhow::anyhow!(
             "no ledger found at {ledger_path}\nRun vigilo first to generate events."
         ));
     }
 
+    let since_ms = filter.since.and_then(date_to_epoch_ms);
+
     let mut map: HashMap<String, Vec<McpEvent>> = HashMap::new();
 
     // When `last` is set, read newest files first so we can stop early
-    let file_order: Vec<&std::path::PathBuf> = if filter.last.is_some() {
+    let file_order: Vec<&(std::path::PathBuf, u128)> = if filter.last.is_some() {
         files.iter().rev().collect()
     } else {
         files.iter().collect()
     };
 
-    for file_path in file_order {
+    for (file_path, rotation_ts) in file_order {
+        // Skip rotated files entirely before --since (all events predate the filter)
+        if let Some(since) = since_ms {
+            if *rotation_ts < since {
+                continue;
+            }
+        }
         let Ok(file) = File::open(file_path) else {
             continue;
         };
