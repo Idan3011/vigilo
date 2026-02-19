@@ -171,5 +171,5 @@ async fn auto_sync_cursor_cache() {
 
 fn write_mcp_session_file(session_id: &Uuid) {
     let content = format!("{}\n{}", session_id, std::process::id());
-    let _ = std::fs::write(format!("{}/.vigilo/mcp-session", models::home()), content);
+    let _ = std::fs::write(models::mcp_session_path(), content);
 }

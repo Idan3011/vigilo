@@ -197,5 +197,5 @@ fn log_event(tool: &str, risk: Risk, duration_us: u64, is_error: bool) {
 }
 
 fn cleanup_mcp_session_file() {
-    let _ = std::fs::remove_file(format!("{}/.vigilo/mcp-session", crate::models::home()));
+    let _ = std::fs::remove_file(crate::models::mcp_session_path());
 }
