@@ -5,6 +5,7 @@
 ```
 src/
 ├── main.rs            CLI entry: dispatches subcommands
+├── cli.rs             Help text, arg parsing, date expressions
 ├── server/
 │   ├── mod.rs         MCP JSON-RPC server over stdio
 │   ├── execute.rs     Tool dispatch, ledger logging, encryption
@@ -28,6 +29,15 @@ src/
 ├── git.rs             Async git helpers (root, name, branch, commit, dirty)
 └── crypto.rs          AES-256-GCM encryption/decryption
 ```
+
+## Session sync
+
+When both MCP server and PostToolUse hook are active (standard setup), they produce complementary events: the MCP server logs its own tool calls, the hook logs the editor's built-in tools with token/model data. To unify these into a single session:
+
+1. MCP server writes `~/.vigilo/mcp-session` (session UUID + PID) on startup
+2. The hook reads this file and adopts the same session ID
+3. The file is deleted on clean shutdown; stale files are ignored via PID check
+4. Cursor hook also skips vigilo MCP tools to prevent duplicate events
 
 ## Design principles
 
