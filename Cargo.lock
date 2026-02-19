@@ -1828,6 +1828,7 @@ dependencies = [
  "atty",
  "base64",
  "chrono",
+ "filetime",
  "fs2",
  "notify",
  "rand",

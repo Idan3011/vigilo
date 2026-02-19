@@ -87,6 +87,7 @@ async fn dispatch_subcommand(args: &[String], ledger_path: &str) -> Option<Resul
         Some("sessions") => Some(view::sessions(ledger_path, parse_view_args(&args[1..]))),
         Some("tail") => Some(dispatch_tail(&args[1..], ledger_path)),
         Some("export") => Some(dispatch_export(&args[1..], ledger_path)),
+        Some("prune") => Some(dispatch_prune(&args[1..], ledger_path)),
         Some("doctor") => {
             doctor::run(ledger_path);
             Some(Ok(()))
@@ -149,6 +150,19 @@ fn dispatch_tail(args: &[String], ledger_path: &str) -> Result<()> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(20);
     view::tail(ledger_path, n)
+}
+
+fn dispatch_prune(args: &[String], ledger_path: &str) -> Result<()> {
+    let days: u32 = get_flag(args, "--older-than")
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(30);
+    let removed = ledger::prune(ledger_path, days)?;
+    if removed > 0 {
+        println!("pruned {removed} rotated ledger file(s) older than {days} days");
+    } else {
+        println!("no rotated ledger files older than {days} days");
+    }
+    Ok(())
 }
 
 fn dispatch_export(args: &[String], ledger_path: &str) -> Result<()> {

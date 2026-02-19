@@ -70,6 +70,8 @@ vigilo stats --since 1m                   # last month
 vigilo stats --since 2026-02-01 --until 2026-02-15
 ```
 
+Shows session count, tool calls, risk breakdown, token usage, estimated cost, tool/file frequency, model breakdown, and active projects.
+
 ## Errors
 
 ```bash
@@ -111,6 +113,15 @@ vigilo export --output ~/report.csv       # custom output path
 vigilo export --since today               # export only today's events
 vigilo export --last 3 --format json      # last 3 sessions as JSON
 ```
+
+## Prune old ledger files
+
+```bash
+vigilo prune                             # delete rotated files older than 30 days
+vigilo prune --older-than 7              # delete rotated files older than 7 days
+```
+
+Only affects rotated ledger files (e.g. `events.1234567890.jsonl`). The active ledger file is never deleted.
 
 ## Health check
 
