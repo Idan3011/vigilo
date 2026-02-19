@@ -149,8 +149,40 @@ pub fn read_transcript_meta(transcript_path: &str, tool_use_id: Option<&str>) ->
     meta
 }
 
+/// Check that the first parseable line has the expected transcript structure.
+/// Returns false (with a stderr warning) if the format looks foreign.
+fn check_transcript_format(file: &mut std::fs::File, size: u64) -> bool {
+    use std::io::{BufRead, Seek, SeekFrom};
+
+    let _ = file.seek(SeekFrom::Start(0));
+    let reader = std::io::BufReader::new(&mut *file);
+
+    for line in reader.lines().take(10).map_while(Result::ok) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        // A valid Claude Code transcript line has "type" and "message" fields.
+        if v.get("type").and_then(|t| t.as_str()).is_some() && v.get("message").is_some() {
+            return true;
+        }
+        // First parseable JSON line doesn't match expected shape.
+        eprintln!(
+            "[vigilo] warning: transcript format may have changed (size={size}, \
+             keys: {:?}) — token/duration data may be missing",
+            v.as_object().map(|o| o.keys().collect::<Vec<_>>())
+        );
+        return false;
+    }
+    // No parseable JSON lines at all — could be empty or binary.
+    false
+}
+
 fn scan_transcript_usage(file: &mut std::fs::File, size: u64) -> TranscriptMeta {
     use std::io::{BufRead, Seek, SeekFrom};
+
+    if !check_transcript_format(file, size) {
+        return TranscriptMeta::default();
+    }
 
     let tail_start = size.saturating_sub(TRANSCRIPT_USAGE_TAIL);
     let _ = file.seek(SeekFrom::Start(tail_start));
@@ -428,6 +460,41 @@ mod tests {
     fn parse_timestamp_micros_missing() {
         let v = serde_json::json!({});
         assert!(parse_timestamp_micros(&v).is_none());
+    }
+
+    #[test]
+    fn check_transcript_format_accepts_valid() {
+        use std::io::Write;
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        let line = serde_json::json!({
+            "type": "assistant",
+            "message": { "model": "test" }
+        });
+        writeln!(tmp, "{}", serde_json::to_string(&line).unwrap()).unwrap();
+        tmp.flush().unwrap();
+
+        let mut file = std::fs::File::open(tmp.path()).unwrap();
+        let size = file.metadata().unwrap().len();
+        assert!(check_transcript_format(&mut file, size));
+    }
+
+    #[test]
+    fn check_transcript_format_rejects_foreign() {
+        use std::io::Write;
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        writeln!(tmp, r#"{{"event":"something","data":"foreign"}}"#).unwrap();
+        tmp.flush().unwrap();
+
+        let mut file = std::fs::File::open(tmp.path()).unwrap();
+        let size = file.metadata().unwrap().len();
+        assert!(!check_transcript_format(&mut file, size));
+    }
+
+    #[test]
+    fn check_transcript_format_rejects_empty() {
+        let tmp = tempfile::NamedTempFile::new().unwrap();
+        let mut file = std::fs::File::open(tmp.path()).unwrap();
+        assert!(!check_transcript_format(&mut file, 0));
     }
 
     #[test]
