@@ -21,6 +21,7 @@ fn print_usage() {
     println!("  vigilo query    [OPTIONS]       Filter events across all sessions");
     println!("  vigilo export   [OPTIONS]       Export events as CSV or JSON");
     println!("  vigilo cursor-usage [OPTIONS]   Fetch real token usage from cursor.com");
+    println!("  vigilo prune    [OPTIONS]       Delete old rotated ledger files");
     println!("  vigilo doctor                   Check configuration and dependencies");
     println!("  vigilo setup                    Interactive setup wizard");
     println!("  vigilo generate-key             Generate a base64 AES-256 encryption key");
@@ -45,6 +46,8 @@ fn print_options() {
     println!("EXPORT OPTIONS:");
     println!("  --format <fmt>    Output format: csv (default) | json");
     println!("  --output <path>   Write to file (default: ~/.vigilo/export.<ext>)\n");
+    println!("PRUNE OPTIONS:");
+    println!("  --older-than <n>  Days threshold (default: 30)\n");
     println!("CURSOR-USAGE OPTIONS:");
     println!("  --since-days <n>  Number of days to look back (default: 30)");
     println!("  --sync            Fetch and cache token data without printing\n");

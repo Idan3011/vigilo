@@ -199,3 +199,119 @@ fn log_event(tool: &str, risk: Risk, duration_us: u64, is_error: bool) {
 fn cleanup_mcp_session_file() {
     let _ = std::fs::remove_file(crate::models::mcp_session_path());
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn test_ctx(ledger_path: &str) -> ServerContext {
+        ServerContext {
+            ledger_path: ledger_path.to_string(),
+            session_id: uuid::Uuid::new_v4(),
+            project_root: None,
+            project_name: None,
+            tag: None,
+            timeout_secs: 5,
+            encryption_key: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn dispatch_initialize_returns_protocol_version() {
+        let msg = json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize" });
+        let ctx = test_ctx("/tmp/test.jsonl");
+        let resp = dispatch(&msg, &ctx).await.unwrap();
+        assert_eq!(resp["jsonrpc"], "2.0");
+        assert_eq!(resp["id"], 1);
+        assert_eq!(resp["result"]["protocolVersion"], "2024-11-05");
+        assert_eq!(resp["result"]["serverInfo"]["name"], "vigilo");
+    }
+
+    #[tokio::test]
+    async fn dispatch_ping_returns_empty_result() {
+        let msg = json!({ "jsonrpc": "2.0", "id": 42, "method": "ping" });
+        let ctx = test_ctx("/tmp/test.jsonl");
+        let resp = dispatch(&msg, &ctx).await.unwrap();
+        assert_eq!(resp["id"], 42);
+        assert!(resp["result"].is_object());
+    }
+
+    #[tokio::test]
+    async fn dispatch_tools_list_returns_14_tools() {
+        let msg = json!({ "jsonrpc": "2.0", "id": 1, "method": "tools/list" });
+        let ctx = test_ctx("/tmp/test.jsonl");
+        let resp = dispatch(&msg, &ctx).await.unwrap();
+        let tools = resp["result"]["tools"].as_array().unwrap();
+        assert_eq!(tools.len(), 14);
+        let names: Vec<&str> = tools.iter().filter_map(|t| t["name"].as_str()).collect();
+        assert!(names.contains(&"read_file"));
+        assert!(names.contains(&"run_command"));
+        assert!(names.contains(&"git_commit"));
+    }
+
+    #[tokio::test]
+    async fn dispatch_tools_call_read_file_round_trip() {
+        let dir = tempfile::tempdir().unwrap();
+        let test_file = dir.path().join("hello.txt");
+        std::fs::write(&test_file, "world").unwrap();
+        let ledger = dir.path().join("events.jsonl");
+        let ctx = test_ctx(ledger.to_str().unwrap());
+
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 7,
+            "method": "tools/call",
+            "params": {
+                "name": "read_file",
+                "arguments": { "path": test_file.to_str().unwrap() }
+            }
+        });
+        let resp = dispatch(&msg, &ctx).await.unwrap();
+        assert_eq!(resp["id"], 7);
+        let text = resp["result"]["content"][0]["text"].as_str().unwrap();
+        assert_eq!(text, "world");
+
+        // Verify event was written to ledger
+        let ledger_content = std::fs::read_to_string(&ledger).unwrap();
+        let event: serde_json::Value = serde_json::from_str(ledger_content.trim()).unwrap();
+        assert_eq!(event["tool"], "read_file");
+        assert_eq!(event["risk"], "read");
+        assert_eq!(event["server"], "vigilo");
+    }
+
+    #[tokio::test]
+    async fn dispatch_tools_call_error_returns_jsonrpc_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("events.jsonl");
+        let ctx = test_ctx(ledger.to_str().unwrap());
+
+        let msg = json!({
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "read_file",
+                "arguments": { "path": "/nonexistent/file.txt" }
+            }
+        });
+        let resp = dispatch(&msg, &ctx).await.unwrap();
+        assert_eq!(resp["id"], 3);
+        assert!(resp["error"].is_object());
+        assert_eq!(resp["error"]["code"], -32603);
+    }
+
+    #[tokio::test]
+    async fn dispatch_unknown_method_returns_none() {
+        let msg = json!({ "jsonrpc": "2.0", "id": 1, "method": "unknown/method" });
+        let ctx = test_ctx("/tmp/test.jsonl");
+        assert!(dispatch(&msg, &ctx).await.is_none());
+    }
+
+    #[tokio::test]
+    async fn dispatch_missing_method_returns_none() {
+        let msg = json!({ "jsonrpc": "2.0", "id": 1 });
+        let ctx = test_ctx("/tmp/test.jsonl");
+        assert!(dispatch(&msg, &ctx).await.is_none());
+    }
+}

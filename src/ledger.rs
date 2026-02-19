@@ -103,6 +103,35 @@ fn rotate_and_cleanup(ledger_path: &PathBuf, keep: usize) -> std::io::Result<()>
     Ok(())
 }
 
+/// Delete rotated ledger files older than `older_than_days` days.
+/// Returns the number of files removed.
+pub fn prune(ledger_path: &str, older_than_days: u32) -> Result<usize> {
+    let path = Path::new(ledger_path);
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = ledger_stem(path);
+    let active_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
+    let cutoff =
+        SystemTime::now() - std::time::Duration::from_secs(u64::from(older_than_days) * 86_400);
+
+    let mut removed = 0;
+    for entry in fs::read_dir(parent)?.flatten() {
+        let name = entry.file_name();
+        let name_str = name.to_string_lossy();
+        if !name_str.starts_with(stem) || !name_str.ends_with(".jsonl") || name_str == active_name {
+            continue;
+        }
+        let modified = entry
+            .metadata()
+            .and_then(|m| m.modified())
+            .unwrap_or(SystemTime::now());
+        if modified < cutoff {
+            fs::remove_file(entry.path())?;
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -176,5 +205,46 @@ mod tests {
             })
             .collect();
         assert!(!rotated.is_empty(), "expected at least 1 rotated file");
+    }
+
+    #[test]
+    fn prune_removes_old_rotated_files() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let active = dir.path().join("events.jsonl");
+        fs::write(&active, "active\n").unwrap();
+
+        // Create a "rotated" file with an old modification time
+        let old = dir.path().join("events.1000000.jsonl");
+        fs::write(&old, "old\n").unwrap();
+        // Set mtime to 60 days ago
+        let old_time = filetime::FileTime::from_unix_time(
+            (SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+                - 60 * 86400) as i64,
+            0,
+        );
+        filetime::set_file_mtime(&old, old_time).unwrap();
+
+        // Create a recent rotated file
+        let recent = dir.path().join("events.9999999.jsonl");
+        fs::write(&recent, "recent\n").unwrap();
+
+        let removed = prune(active.to_str().unwrap(), 30).unwrap();
+        assert_eq!(removed, 1);
+        assert!(!old.exists(), "old file should be deleted");
+        assert!(recent.exists(), "recent file should remain");
+        assert!(active.exists(), "active file should remain");
+    }
+
+    #[test]
+    fn prune_returns_zero_when_nothing_to_remove() {
+        let dir = tempfile::tempdir().expect("temp dir");
+        let active = dir.path().join("events.jsonl");
+        fs::write(&active, "active\n").unwrap();
+
+        let removed = prune(active.to_str().unwrap(), 30).unwrap();
+        assert_eq!(removed, 0);
     }
 }
