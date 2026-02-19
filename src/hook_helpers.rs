@@ -62,12 +62,19 @@ pub fn extract_error_message(response: &serde_json::Value) -> String {
 }
 
 pub async fn build_project(git_dir: &str) -> ProjectContext {
+    let (root, name, branch, commit, dirty) = tokio::join!(
+        git::root_in(git_dir),
+        git::name_in(Some(git_dir)),
+        git::branch_in(git_dir),
+        git::commit_in(git_dir),
+        git::dirty_in(git_dir),
+    );
     ProjectContext {
-        root: git::root_in(git_dir).await,
-        name: git::name_in(Some(git_dir)).await,
-        branch: git::branch_in(git_dir).await,
-        commit: git::commit_in(git_dir).await,
-        dirty: git::dirty_in(git_dir).await,
+        root,
+        name,
+        branch,
+        commit,
+        dirty,
     }
 }
 

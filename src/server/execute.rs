@@ -201,16 +201,12 @@ async fn resolve_project(
         });
     let git_dir = tool_dir.as_deref();
     let (branch, commit, dirty) = match git_dir {
-        Some(d) => (
-            git::branch_in(d).await,
-            git::commit_in(d).await,
-            git::dirty_in(d).await,
-        ),
-        None => (git::branch().await, git::commit().await, git::dirty().await),
+        Some(d) => tokio::join!(git::branch_in(d), git::commit_in(d), git::dirty_in(d),),
+        None => tokio::join!(git::branch(), git::commit(), git::dirty()),
     };
     let (root, name) = match (project_root, git_dir) {
         (Some(r), _) => (Some(r.clone()), project_name.clone()),
-        (None, Some(d)) => (git::root_in(d).await, git::name_in(Some(d)).await),
+        (None, Some(d)) => tokio::join!(git::root_in(d), git::name_in(Some(d))),
         (None, None) => (None, None),
     };
     ProjectContext {
