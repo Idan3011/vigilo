@@ -27,9 +27,11 @@ pub fn stats_filtered(ledger_path: &str, since: Option<&str>, until: Option<&str
     }
 
     let all_events: Vec<&McpEvent> = sessions.iter().flat_map(|(_, e)| e).collect();
-    let c = EventCounts::from_events(&all_events);
+    let mut c = EventCounts::from_events(&all_events);
+    c.add_cursor_tokens(&sessions);
 
     print_stats_header(sessions.len(), &c);
+    print_stats_tokens(&c);
     print_tool_file_table(&all_events);
     print_models_section(&all_events, &sessions);
     print_projects_section(&all_events);
@@ -66,6 +68,27 @@ fn print_stats_header(session_count: usize, c: &EventCounts) {
         c.reads,
         c.writes,
         c.execs
+    );
+}
+
+fn print_stats_tokens(c: &EventCounts) {
+    if c.total_in == 0 && c.total_out == 0 {
+        return;
+    }
+    let cache_str = if c.total_cr > 0 {
+        format!(" · cache: {} read", fmt_tokens(c.total_cr))
+    } else {
+        String::new()
+    };
+    let cost_str = if c.total_cost > 0.0 {
+        format!(" · ~{}", fmt_cost(c.total_cost))
+    } else {
+        String::new()
+    };
+    cprintln!(
+        "  tokens: {} in · {} out{cache_str}{cost_str}",
+        fmt_tokens(c.total_in),
+        fmt_tokens(c.total_out)
     );
 }
 
