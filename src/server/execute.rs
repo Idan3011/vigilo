@@ -46,7 +46,9 @@ pub(super) async fn on_tool_call(
     };
 
     if let Err(e) = ledger::append_event(&event, &ctx.ledger_path) {
-        eprintln!("[vigilo] ledger error: {e}");
+        let msg = format!("[vigilo] ledger error: {e}");
+        eprintln!("{msg}");
+        crate::hook_helpers::log_error(&msg);
     }
 
     response

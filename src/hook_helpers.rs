@@ -114,8 +114,29 @@ pub async fn build_project(git_dir: &str) -> ProjectContext {
 
 pub fn write_hook_event(event: &McpEvent, ledger_path: &str) {
     if let Err(e) = ledger::append_event(event, ledger_path) {
-        eprintln!("[vigilo hook] ledger error: {e}");
+        let msg = format!("[vigilo hook] ledger error: {e}");
+        eprintln!("{msg}");
+        log_error(&msg);
     }
+}
+
+/// Append a timestamped error line to `~/.vigilo/errors.log`.
+/// Best-effort: never panics, never blocks on failure.
+pub fn log_error(msg: &str) {
+    use std::io::Write;
+    let path = crate::models::vigilo_path("errors.log");
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let Ok(mut f) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    else {
+        return;
+    };
+    let ts = chrono::Utc::now().to_rfc3339();
+    let _ = writeln!(f, "{ts} {msg}");
 }
 
 #[derive(Default)]
@@ -460,6 +481,20 @@ mod tests {
     fn parse_timestamp_micros_missing() {
         let v = serde_json::json!({});
         assert!(parse_timestamp_micros(&v).is_none());
+    }
+
+    #[test]
+    fn log_error_appends_to_file() {
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", dir.path().to_str().unwrap());
+        log_error("test error one");
+        log_error("test error two");
+        let content =
+            std::fs::read_to_string(dir.path().join(".vigilo").join("errors.log")).unwrap();
+        std::env::remove_var("HOME");
+        assert!(content.contains("test error one"));
+        assert!(content.contains("test error two"));
+        assert_eq!(content.lines().count(), 2);
     }
 
     #[test]
