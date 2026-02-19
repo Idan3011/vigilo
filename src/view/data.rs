@@ -92,9 +92,7 @@ pub(super) fn load_sessions(
     let files = all_ledger_files_with_ts(ledger_path);
     let any_exists = files.iter().any(|(f, _)| f.exists());
     if !any_exists {
-        return Err(anyhow::anyhow!(
-            "no ledger found at {ledger_path}\nRun vigilo first to generate events."
-        ));
+        return Ok(Vec::new());
     }
 
     let since_ms = filter.since.and_then(date_to_epoch_ms);
@@ -165,9 +163,7 @@ pub(super) fn load_sessions(
 pub(super) fn load_tail_events(ledger_path: &str, n: usize) -> Result<Vec<McpEvent>> {
     let files = all_ledger_files(ledger_path);
     if !files.iter().any(|f| f.exists()) {
-        return Err(anyhow::anyhow!(
-            "no ledger found at {ledger_path}\nRun vigilo first to generate events."
-        ));
+        return Ok(Vec::new());
     }
 
     let mut events: Vec<McpEvent> = Vec::new();
