@@ -100,6 +100,26 @@ impl Risk {
     }
 }
 
+pub fn is_vigilo_mcp_tool(name: &str) -> bool {
+    matches!(
+        name,
+        "read_file"
+            | "write_file"
+            | "list_directory"
+            | "create_directory"
+            | "delete_file"
+            | "move_file"
+            | "search_files"
+            | "run_command"
+            | "get_file_info"
+            | "patch_file"
+            | "git_status"
+            | "git_diff"
+            | "git_log"
+            | "git_commit"
+    )
+}
+
 pub fn compute_unified_diff(old: &str, new: &str) -> Option<String> {
     use similar::{ChangeTag, TextDiff};
 

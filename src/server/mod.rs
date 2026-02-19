@@ -45,6 +45,7 @@ pub async fn run(ledger_path: String, session_id: Uuid) -> Result<()> {
     )
     .await?;
 
+    cleanup_mcp_session_file();
     print_session_summary(session_id, &counters, started.elapsed().as_secs());
     Ok(())
 }
@@ -225,6 +226,11 @@ fn log_event(tool: &str, risk: Risk, duration_us: u64, is_error: bool) {
     } else {
         eprintln!("[{status}] {label}  {tool}  ({dur})");
     }
+}
+
+fn cleanup_mcp_session_file() {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let _ = std::fs::remove_file(format!("{home}/.vigilo/mcp-session"));
 }
 
 pub fn load_config() -> std::collections::HashMap<String, String> {

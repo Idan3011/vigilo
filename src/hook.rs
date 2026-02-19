@@ -95,6 +95,9 @@ fn parse_claude_tool(payload: &serde_json::Value) -> (String, serde_json::Value)
 }
 
 fn claude_session_id(payload: &serde_json::Value) -> Uuid {
+    if let Some(id) = read_mcp_session_id() {
+        return id;
+    }
     payload["transcript_path"]
         .as_str()
         .or_else(|| payload["session_id"].as_str())
@@ -176,12 +179,18 @@ async fn handle_cursor_hook(payload: &serde_json::Value, ledger_path: &str) -> R
         return Ok(());
     }
 
-    let session_id = payload["conversation_id"]
-        .as_str()
-        .map(stable_uuid)
-        .unwrap_or_else(Uuid::new_v4);
+    let session_id = read_mcp_session_id().unwrap_or_else(|| {
+        payload["conversation_id"]
+            .as_str()
+            .map(stable_uuid)
+            .unwrap_or_else(Uuid::new_v4)
+    });
     let cwd = cursor_cwd(payload);
     let (tool_name, arguments, risk, diff) = parse_cursor_event(payload, hook_event);
+
+    if crate::models::is_vigilo_mcp_tool(&tool_name) {
+        return Ok(());
+    }
 
     let git_dir = resolve_git_dir(&tool_name, &arguments, &cwd);
     let project = build_project(&git_dir).await;
@@ -356,6 +365,31 @@ fn build_cursor_event(
         generation_id: payload["generation_id"].as_str().map(|s| s.to_string()),
         ..Default::default()
     }
+}
+
+fn read_mcp_session_id() -> Option<Uuid> {
+    let home = std::env::var("HOME").ok()?;
+    let content = std::fs::read_to_string(format!("{home}/.vigilo/mcp-session")).ok()?;
+    let mut lines = content.lines();
+    let uuid_str = lines.next()?;
+    let pid: u32 = lines.next()?.parse().ok()?;
+    if !is_process_alive(pid) {
+        return None;
+    }
+    Uuid::parse_str(uuid_str).ok()
+}
+
+fn is_process_alive(pid: u32) -> bool {
+    if std::path::Path::new(&format!("/proc/{pid}")).exists() {
+        return true;
+    }
+    std::process::Command::new("kill")
+        .args(["-0", &pid.to_string()])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 fn hook_store_response() -> bool {
