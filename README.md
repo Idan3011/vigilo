@@ -94,7 +94,7 @@ Some tools are built into the agent and bypass MCP entirely (Claude Code's Read,
 
 **Nothing leaves your machine.** No telemetry, no phoning home, no accounts, no SaaS. The only exception is `vigilo cursor-usage`, which makes opt-in HTTPS requests to cursor.com to fetch your token usage — using your existing local Cursor credentials.
 
-**Encryption at rest is optional.** Metadata (tool name, risk level, timing, git context) is always plaintext so you can always see the shape of what happened. Content (file paths, arguments, results) can be encrypted with AES-256-GCM if you work on sensitive codebases.
+**Encryption at rest is automatic.** On first run, vigilo generates an AES-256-GCM key at `~/.vigilo/encryption.key` and encrypts content (arguments, results) transparently. Metadata (tool name, risk level, timing, git context) is always plaintext so you can always see the shape of what happened. You can also provide your own key via `VIGILO_ENCRYPTION_KEY` env var.
 
 ---
 
