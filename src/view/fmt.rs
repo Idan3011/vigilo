@@ -2,11 +2,20 @@ use crate::{
     crypto,
     models::{McpEvent, Risk},
 };
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::OnceLock;
 
+static FORCE_NO_COLOR: AtomicBool = AtomicBool::new(false);
 static COLOR: OnceLock<bool> = OnceLock::new();
 
+pub(crate) fn disable_color() {
+    FORCE_NO_COLOR.store(true, Ordering::Relaxed);
+}
+
 pub(crate) fn use_color() -> bool {
+    if FORCE_NO_COLOR.load(Ordering::Relaxed) {
+        return false;
+    }
     *COLOR.get_or_init(|| std::env::var("NO_COLOR").is_err() && atty::is(atty::Stream::Stdout))
 }
 
@@ -251,11 +260,7 @@ pub(crate) fn print_colored_diff(diff_text: &str) {
     }
 }
 
-pub(crate) fn primary_arg_pub(args: &serde_json::Value) -> serde_json::Value {
-    primary_arg(args)
-}
-
-fn primary_arg(args: &serde_json::Value) -> serde_json::Value {
+pub(crate) fn primary_arg(args: &serde_json::Value) -> serde_json::Value {
     args.get("file_path")
         .or_else(|| args.get("path"))
         .or_else(|| args.get("command"))

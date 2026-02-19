@@ -17,14 +17,13 @@ use uuid::Uuid;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    let ledger_path =
-        std::env::var("VIGILO_LEDGER").unwrap_or_else(|_| format!("{home}/.vigilo/events.jsonl"));
+    let ledger_path = std::env::var("VIGILO_LEDGER")
+        .unwrap_or_else(|_| format!("{}/.vigilo/events.jsonl", models::home()));
 
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
 
     if raw_args.iter().any(|a| a == "--no-color") {
-        std::env::set_var("NO_COLOR", "1");
+        view::fmt::disable_color();
     }
 
     let args: Vec<String> = raw_args.into_iter().filter(|a| a != "--no-color").collect();
@@ -97,11 +96,7 @@ async fn dispatch_subcommand(args: &[String], ledger_path: &str) -> Option<Resul
 }
 
 fn generate_key() -> Result<()> {
-    use base64::{engine::general_purpose::STANDARD, Engine};
-    use rand::RngCore;
-    let mut key = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut key);
-    println!("{}", STANDARD.encode(key));
+    println!("{}", crypto::generate_key_b64());
     Ok(())
 }
 
@@ -175,7 +170,6 @@ async fn auto_sync_cursor_cache() {
 }
 
 fn write_mcp_session_file(session_id: &Uuid) {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
     let content = format!("{}\n{}", session_id, std::process::id());
-    let _ = std::fs::write(format!("{home}/.vigilo/mcp-session"), content);
+    let _ = std::fs::write(format!("{}/.vigilo/mcp-session", models::home()), content);
 }

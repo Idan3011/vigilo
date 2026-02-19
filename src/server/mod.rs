@@ -53,7 +53,7 @@ pub async fn run(ledger_path: String, session_id: Uuid) -> Result<()> {
 async fn init_session() -> (Option<String>, Option<String>, Option<String>, u64) {
     let project_root = crate::git::root().await;
     let project_name = crate::git::name().await;
-    let config = load_config();
+    let config = crate::models::load_config();
 
     let project_branch = match project_root.as_deref() {
         Some(root) => crate::git::branch_in(root).await,
@@ -203,7 +203,7 @@ fn on_initialize(msg: &serde_json::Value) -> serde_json::Value {
         "result": {
             "protocolVersion": "2024-11-05",
             "capabilities": { "tools": {} },
-            "serverInfo": { "name": "vigilo", "version": "0.1.0" },
+            "serverInfo": { "name": "vigilo", "version": env!("CARGO_PKG_VERSION") },
         },
     })
 }
@@ -229,22 +229,5 @@ fn log_event(tool: &str, risk: Risk, duration_us: u64, is_error: bool) {
 }
 
 fn cleanup_mcp_session_file() {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    let _ = std::fs::remove_file(format!("{home}/.vigilo/mcp-session"));
-}
-
-pub fn load_config() -> std::collections::HashMap<String, String> {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    let path = format!("{home}/.vigilo/config");
-    let Ok(content) = std::fs::read_to_string(&path) else {
-        return std::collections::HashMap::new();
-    };
-    content
-        .lines()
-        .filter(|l| !l.trim_start().starts_with('#') && !l.trim().is_empty())
-        .filter_map(|l| {
-            let (k, v) = l.split_once('=')?;
-            Some((k.trim().to_string(), v.trim().to_string()))
-        })
-        .collect()
+    let _ = std::fs::remove_file(format!("{}/.vigilo/mcp-session", crate::models::home()));
 }

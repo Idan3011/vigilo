@@ -64,31 +64,32 @@ pub fn parse_view_args(args: &[String]) -> view::ViewArgs {
     let mut i = 0;
     while i < args.len() {
         match args[i].as_str() {
-            "--last" => {
-                if let Some(n) = args.get(i + 1).and_then(|s| s.parse().ok()) {
-                    out.last = Some(n);
-                    i += 1;
+            "--last" => match args.get(i + 1) {
+                Some(s) => match s.parse() {
+                    Ok(n) => {
+                        out.last = Some(n);
+                        i += 1;
+                    }
+                    Err(_) => eprintln!("vigilo: --last requires a number, got '{s}'"),
+                },
+                None => eprintln!("vigilo: --last requires a value"),
+            },
+            "--risk" | "--tool" | "--session" | "--since" | "--until" => {
+                let flag = args[i].as_str();
+                match args.get(i + 1) {
+                    Some(val) => {
+                        match flag {
+                            "--risk" => out.risk = Some(val.clone()),
+                            "--tool" => out.tool = Some(val.clone()),
+                            "--session" => out.session = Some(val.clone()),
+                            "--since" => out.since = Some(parse_date(val)),
+                            "--until" => out.until = Some(parse_date(val)),
+                            _ => {}
+                        }
+                        i += 1;
+                    }
+                    None => eprintln!("vigilo: {flag} requires a value"),
                 }
-            }
-            "--risk" => {
-                out.risk = args.get(i + 1).cloned();
-                i += 1;
-            }
-            "--tool" => {
-                out.tool = args.get(i + 1).cloned();
-                i += 1;
-            }
-            "--session" => {
-                out.session = args.get(i + 1).cloned();
-                i += 1;
-            }
-            "--since" => {
-                out.since = args.get(i + 1).map(|s| parse_date(s));
-                i += 1;
-            }
-            "--until" => {
-                out.until = args.get(i + 1).map(|s| parse_date(s));
-                i += 1;
             }
             "--expand" => out.expand = true,
             other if other.starts_with("--") => {
