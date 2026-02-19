@@ -74,4 +74,54 @@ mod tests {
     fn non_encrypted_string_not_detected() {
         assert!(!is_encrypted("plaintext"));
     }
+
+    #[test]
+    fn generate_key_b64_produces_valid_32_byte_key() {
+        let b64 = generate_key_b64();
+        let bytes = STANDARD.decode(&b64).unwrap();
+        assert_eq!(bytes.len(), 32);
+    }
+
+    #[test]
+    fn generate_key_b64_is_unique() {
+        let k1 = generate_key_b64();
+        let k2 = generate_key_b64();
+        assert_ne!(k1, k2);
+    }
+
+    #[test]
+    fn encrypt_decrypt_empty_string() {
+        let key = test_key();
+        let ct = encrypt(&key, "").unwrap();
+        assert!(is_encrypted(&ct));
+        assert_eq!(decrypt(&key, &ct).unwrap(), "");
+    }
+
+    #[test]
+    fn decrypt_short_payload_returns_none() {
+        let key = test_key();
+        // Payload shorter than 12-byte nonce
+        let short = STANDARD.encode([1u8; 5]);
+        let ct = format!("{PREFIX}{short}");
+        assert!(decrypt(&key, &ct).is_none());
+    }
+
+    #[test]
+    fn decrypt_without_prefix_returns_none() {
+        let key = test_key();
+        assert!(decrypt(&key, "not-encrypted-at-all").is_none());
+    }
+
+    #[test]
+    fn decrypt_invalid_base64_returns_none() {
+        let key = test_key();
+        assert!(decrypt(&key, &format!("{PREFIX}!!!invalid-base64!!!")).is_none());
+    }
+
+    #[test]
+    fn is_encrypted_detects_prefix() {
+        assert!(is_encrypted("enc:v1:something"));
+        assert!(!is_encrypted("enc:v2:something"));
+        assert!(!is_encrypted(""));
+    }
 }
