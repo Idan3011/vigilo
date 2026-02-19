@@ -178,7 +178,7 @@ fn check_claude_hook(pass: &mut u32, fail: &mut u32) {
             cprintln!("  {DIM}-{RESET}  ~/.claude/settings.json not found");
         }
         Some(val) => {
-            if has_vigilo_hook(&val["hooks"]["PostToolUse"]) {
+            if crate::setup::is_vigilo_hook_present(&val["hooks"]["PostToolUse"]) {
                 ok("Claude Code PostToolUse hook installed", pass);
             } else {
                 err(
@@ -233,22 +233,6 @@ fn check_mcp_session(pass: &mut u32) {
     } else {
         cprintln!("  {DIM}-{RESET}  MCP session file stale (server not running)");
     }
-}
-
-fn has_vigilo_hook(post_tool_use: &serde_json::Value) -> bool {
-    post_tool_use
-        .as_array()
-        .map(|arr| {
-            arr.iter().any(|h| {
-                h["hooks"]
-                    .as_array()
-                    .and_then(|a| a.first())
-                    .and_then(|x| x["command"].as_str())
-                    .map(|c| c.contains("vigilo"))
-                    == Some(true)
-            })
-        })
-        .unwrap_or(false)
 }
 
 fn read_json(path: &str) -> Option<serde_json::Value> {

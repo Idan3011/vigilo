@@ -159,7 +159,7 @@ fn setup_claude_hook() -> Result<()> {
     Ok(())
 }
 
-fn is_vigilo_hook_present(post_tool_use: &serde_json::Value) -> bool {
+pub(crate) fn is_vigilo_hook_present(post_tool_use: &serde_json::Value) -> bool {
     post_tool_use
         .as_array()
         .map(|arr| {
