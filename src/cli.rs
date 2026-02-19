@@ -25,6 +25,7 @@ fn print_usage() {
     println!("  vigilo doctor                   Check configuration and dependencies");
     println!("  vigilo setup                    Interactive setup wizard");
     println!("  vigilo generate-key             Generate a base64 AES-256 encryption key");
+    println!("  vigilo completions <shell>      Print shell completions (bash|zsh|fish)");
     println!("  vigilo help | --help | -h       Show this message");
     println!("  vigilo --version | -V           Show version\n");
     println!("INTERNAL:");
@@ -178,6 +179,162 @@ fn parse_duration_months(s: &str, today: chrono::NaiveDate) -> String {
                 .map(|d| d.format("%Y-%m-%d").to_string())
         })
         .unwrap_or_else(|| s.to_string())
+}
+
+pub fn completions(shell: Option<&str>) -> anyhow::Result<()> {
+    match shell {
+        Some("bash") => print!("{}", bash_completions()),
+        Some("zsh") => print!("{}", zsh_completions()),
+        Some("fish") => print!("{}", fish_completions()),
+        _ => {
+            eprintln!("Usage: vigilo completions <bash|zsh|fish>");
+            eprintln!();
+            eprintln!("Add to your shell config:");
+            eprintln!("  bash: eval \"$(vigilo completions bash)\"");
+            eprintln!("  zsh:  eval \"$(vigilo completions zsh)\"");
+            eprintln!("  fish: vigilo completions fish | source");
+            std::process::exit(1);
+        }
+    }
+    Ok(())
+}
+
+const SUBCOMMANDS: &[&str] = &[
+    "summary",
+    "sessions",
+    "tail",
+    "view",
+    "watch",
+    "stats",
+    "errors",
+    "diff",
+    "query",
+    "export",
+    "cursor-usage",
+    "prune",
+    "doctor",
+    "setup",
+    "generate-key",
+    "completions",
+    "help",
+];
+
+fn bash_completions() -> String {
+    format!(
+        r#"_vigilo() {{
+    local cur prev subcmds
+    COMPREPLY=()
+    cur="${{COMP_WORDS[COMP_CWORD]}}"
+    prev="${{COMP_WORDS[COMP_CWORD-1]}}"
+    subcmds="{subcmds}"
+
+    if [[ $COMP_CWORD -eq 1 ]]; then
+        COMPREPLY=( $(compgen -W "$subcmds" -- "$cur") )
+        return 0
+    fi
+
+    case "$prev" in
+        --risk) COMPREPLY=( $(compgen -W "read write exec" -- "$cur") ) ;;
+        --format) COMPREPLY=( $(compgen -W "csv json" -- "$cur") ) ;;
+        completions) COMPREPLY=( $(compgen -W "bash zsh fish" -- "$cur") ) ;;
+        --since|--until|--tool|--session|--last|--older-than|--since-days|--output|-n) ;;
+        *) COMPREPLY=( $(compgen -W "--since --until --risk --tool --session --last --expand --no-color --format --output" -- "$cur") ) ;;
+    esac
+    return 0
+}}
+complete -F _vigilo vigilo
+"#,
+        subcmds = SUBCOMMANDS.join(" ")
+    )
+}
+
+fn zsh_completions() -> String {
+    format!(
+        r#"#compdef vigilo
+
+_vigilo() {{
+    local -a subcmds
+    subcmds=({subcmds})
+
+    _arguments -C \
+        '1:command:((${{subcmds}}))' \
+        '*:: :->args'
+
+    case $state in
+        args)
+            case $words[1] in
+                view|sessions|stats|errors|diff|query)
+                    _arguments \
+                        '--since[From date]:date:' \
+                        '--until[To date]:date:' \
+                        '--risk[Risk level]:level:(read write exec)' \
+                        '--tool[Tool name]:tool:' \
+                        '--session[Session prefix]:prefix:' \
+                        '--last[Last N sessions]:count:' \
+                        '--expand[Show all events]' \
+                        '--no-color[Disable colors]'
+                    ;;
+                tail)
+                    _arguments \
+                        '-n[Number of events]:count:' \
+                        '--last[Number of events]:count:'
+                    ;;
+                export)
+                    _arguments \
+                        '--format[Output format]:format:(csv json)' \
+                        '--output[Output file]:file:_files' \
+                        '--since[From date]:date:' \
+                        '--until[To date]:date:'
+                    ;;
+                prune)
+                    _arguments '--older-than[Days threshold]:days:'
+                    ;;
+                cursor-usage)
+                    _arguments \
+                        '--since-days[Lookback days]:days:' \
+                        '--sync[Fetch without printing]'
+                    ;;
+                completions)
+                    _arguments '1:shell:(bash zsh fish)'
+                    ;;
+            esac
+            ;;
+    esac
+}}
+
+_vigilo "$@"
+"#,
+        subcmds = SUBCOMMANDS.join(" ")
+    )
+}
+
+fn fish_completions() -> String {
+    let mut out = String::from("# vigilo completions for fish\ncomplete -c vigilo -e\n");
+    for cmd in SUBCOMMANDS {
+        out.push_str(&format!(
+            "complete -c vigilo -n '__fish_use_subcommand' -a '{cmd}'\n"
+        ));
+    }
+    out.push_str(
+        r#"complete -c vigilo -n '__fish_seen_subcommand_from view sessions stats errors diff query' -l since -x
+complete -c vigilo -n '__fish_seen_subcommand_from view sessions stats errors diff query' -l until -x
+complete -c vigilo -n '__fish_seen_subcommand_from view sessions stats errors diff query' -l risk -xa 'read write exec'
+complete -c vigilo -n '__fish_seen_subcommand_from view sessions stats errors diff query' -l tool -x
+complete -c vigilo -n '__fish_seen_subcommand_from view sessions stats errors diff query' -l session -x
+complete -c vigilo -n '__fish_seen_subcommand_from view sessions stats errors diff query' -l last -x
+complete -c vigilo -n '__fish_seen_subcommand_from view sessions stats errors diff query' -l expand
+complete -c vigilo -n '__fish_seen_subcommand_from tail' -s n -x
+complete -c vigilo -n '__fish_seen_subcommand_from tail' -l last -x
+complete -c vigilo -n '__fish_seen_subcommand_from export' -l format -xa 'csv json'
+complete -c vigilo -n '__fish_seen_subcommand_from export' -l output -rF
+complete -c vigilo -n '__fish_seen_subcommand_from prune' -l older-than -x
+complete -c vigilo -n '__fish_seen_subcommand_from cursor-usage' -l since-days -x
+complete -c vigilo -n '__fish_seen_subcommand_from cursor-usage' -l sync
+complete -c vigilo -n '__fish_seen_subcommand_from completions' -xa 'bash zsh fish'
+complete -c vigilo -l no-color
+"#,
+    );
+    out
 }
 
 #[cfg(test)]

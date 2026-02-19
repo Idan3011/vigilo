@@ -92,6 +92,7 @@ async fn dispatch_subcommand(args: &[String], ledger_path: &str) -> Option<Resul
             doctor::run(ledger_path);
             Some(Ok(()))
         }
+        Some("completions") => Some(cli::completions(args.get(1).map(|s| s.as_str()))),
         _ => None,
     }
 }
