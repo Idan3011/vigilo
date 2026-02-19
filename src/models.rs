@@ -54,6 +54,24 @@ pub struct McpEvent {
     pub diff: Option<String>,
     #[serde(default)]
     pub timed_out: bool,
+
+    // Token/model metadata (flattened for backward-compatible JSONL)
+    #[serde(default, flatten)]
+    pub token_usage: TokenUsage,
+
+    // Claude Code hook context (flattened)
+    #[serde(default, flatten)]
+    pub hook_context: HookContext,
+
+    // Cursor-specific metadata (flattened)
+    #[serde(default, flatten)]
+    pub cursor_meta: CursorMeta,
+}
+
+/// Token and model metadata — populated by Claude Code hooks (via transcript)
+/// and Cursor hooks. Flattened into McpEvent for backward-compatible JSONL.
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct TokenUsage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,14 +86,43 @@ pub struct McpEvent {
     pub stop_reason: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub service_tier: Option<String>,
+}
+
+/// Claude Code hook-specific fields.
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct HookContext {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub permission_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool_use_id: Option<String>,
+}
+
+/// Cursor-specific metadata.
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct CursorMeta {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub generation_id: Option<String>,
+}
+
+// Convenience accessors so view code can still use e.model, e.input_tokens, etc.
+impl McpEvent {
+    pub fn model(&self) -> Option<&str> {
+        self.token_usage.model.as_deref()
+    }
+    pub fn input_tokens(&self) -> Option<u64> {
+        self.token_usage.input_tokens
+    }
+    pub fn output_tokens(&self) -> Option<u64> {
+        self.token_usage.output_tokens
+    }
+    pub fn cache_read_tokens(&self) -> Option<u64> {
+        self.token_usage.cache_read_tokens
+    }
+    pub fn cache_write_tokens(&self) -> Option<u64> {
+        self.token_usage.cache_write_tokens
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Default)]
@@ -234,7 +281,7 @@ mod tests {
         assert_eq!(e.duration_us, 0);
         assert_eq!(e.risk, Risk::Unknown);
         assert!(e.tag.is_none());
-        assert!(e.model.is_none());
+        assert!(e.model().is_none());
     }
 
     #[test]
@@ -248,5 +295,50 @@ mod tests {
         let parsed: McpEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.tool, "read_file");
         assert_eq!(parsed.risk, Risk::Read);
+    }
+
+    #[test]
+    fn mcp_event_flatten_backward_compatible() {
+        // Simulate reading a legacy flat JSON event (pre-refactor format)
+        let legacy_json = serde_json::json!({
+            "id": "00000000-0000-0000-0000-000000000000",
+            "timestamp": "2026-02-18T12:00:00Z",
+            "session_id": "00000000-0000-0000-0000-000000000000",
+            "server": "claude-code",
+            "tool": "Read",
+            "arguments": {},
+            "outcome": { "status": "ok", "result": null },
+            "duration_us": 100,
+            "risk": "read",
+            "project": { "dirty": false },
+            "model": "claude-opus-4-6",
+            "input_tokens": 1000,
+            "output_tokens": 500,
+            "cache_read_tokens": 200,
+            "permission_mode": "auto",
+            "tool_use_id": "tu_123",
+            "cursor_version": "0.45.0",
+            "generation_id": "gen_abc"
+        });
+        let parsed: McpEvent = serde_json::from_value(legacy_json).unwrap();
+        assert_eq!(parsed.model(), Some("claude-opus-4-6"));
+        assert_eq!(parsed.input_tokens(), Some(1000));
+        assert_eq!(parsed.output_tokens(), Some(500));
+        assert_eq!(parsed.cache_read_tokens(), Some(200));
+        assert_eq!(parsed.hook_context.permission_mode.as_deref(), Some("auto"));
+        assert_eq!(parsed.hook_context.tool_use_id.as_deref(), Some("tu_123"));
+        assert_eq!(parsed.cursor_meta.cursor_version.as_deref(), Some("0.45.0"));
+        assert_eq!(parsed.cursor_meta.generation_id.as_deref(), Some("gen_abc"));
+
+        // Verify re-serialization produces the same flat format
+        let reserialized = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(reserialized["model"], "claude-opus-4-6");
+        assert_eq!(reserialized["input_tokens"], 1000);
+        assert_eq!(reserialized["permission_mode"], "auto");
+        assert_eq!(reserialized["cursor_version"], "0.45.0");
+        // Must NOT produce nested objects
+        assert!(reserialized.get("token_usage").is_none());
+        assert!(reserialized.get("hook_context").is_none());
+        assert!(reserialized.get("cursor_meta").is_none());
     }
 }

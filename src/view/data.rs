@@ -206,7 +206,7 @@ pub(super) fn cursor_session_tokens(
     if first.server != "cursor" {
         return None;
     }
-    if events.iter().any(|e| e.input_tokens.is_some()) {
+    if events.iter().any(|e| e.input_tokens().is_some()) {
         return None;
     }
 

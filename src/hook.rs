@@ -74,15 +74,19 @@ async fn handle_claude_hook(payload: &serde_json::Value, ledger_path: &str) -> R
         project,
         tag,
         diff,
-        model: tmeta.model.clone(),
-        input_tokens: tmeta.input_tokens,
-        output_tokens: tmeta.output_tokens,
-        cache_read_tokens: tmeta.cache_read_tokens,
-        cache_write_tokens: tmeta.cache_write_tokens,
-        stop_reason: tmeta.stop_reason.clone(),
-        service_tier: tmeta.service_tier.clone(),
-        permission_mode: payload["permission_mode"].as_str().map(|s| s.to_string()),
-        tool_use_id: tool_use_id_str.map(|s| s.to_string()),
+        token_usage: crate::models::TokenUsage {
+            model: tmeta.model.clone(),
+            input_tokens: tmeta.input_tokens,
+            output_tokens: tmeta.output_tokens,
+            cache_read_tokens: tmeta.cache_read_tokens,
+            cache_write_tokens: tmeta.cache_write_tokens,
+            stop_reason: tmeta.stop_reason.clone(),
+            service_tier: tmeta.service_tier.clone(),
+        },
+        hook_context: crate::models::HookContext {
+            permission_mode: payload["permission_mode"].as_str().map(|s| s.to_string()),
+            tool_use_id: tool_use_id_str.map(|s| s.to_string()),
+        },
         ..Default::default()
     };
 
@@ -186,10 +190,18 @@ async fn handle_cursor_hook(payload: &serde_json::Value, ledger_path: &str) -> R
         project,
         tag,
         diff,
-        model,
-        tool_use_id: payload["tool_use_id"].as_str().map(|s| s.to_string()),
-        cursor_version: payload["cursor_version"].as_str().map(|s| s.to_string()),
-        generation_id: payload["generation_id"].as_str().map(|s| s.to_string()),
+        token_usage: crate::models::TokenUsage {
+            model,
+            ..Default::default()
+        },
+        hook_context: crate::models::HookContext {
+            tool_use_id: payload["tool_use_id"].as_str().map(|s| s.to_string()),
+            ..Default::default()
+        },
+        cursor_meta: crate::models::CursorMeta {
+            cursor_version: payload["cursor_version"].as_str().map(|s| s.to_string()),
+            generation_id: payload["generation_id"].as_str().map(|s| s.to_string()),
+        },
         ..Default::default()
     };
 

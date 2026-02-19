@@ -210,11 +210,11 @@ fn pricing_for(model: &str) -> Option<(f64, f64, f64)> {
 }
 
 pub(crate) fn event_cost_usd(e: &McpEvent) -> Option<f64> {
-    let (ip, op, crp) = pricing_for(e.model.as_deref()?)?;
-    let inp = e.input_tokens? as f64;
-    let out = e.output_tokens.unwrap_or(0) as f64;
-    let cr = e.cache_read_tokens.unwrap_or(0) as f64;
-    let cw = e.cache_write_tokens.unwrap_or(0) as f64;
+    let (ip, op, crp) = pricing_for(e.model()?)?;
+    let inp = e.input_tokens()? as f64;
+    let out = e.output_tokens().unwrap_or(0) as f64;
+    let cr = e.cache_read_tokens().unwrap_or(0) as f64;
+    let cw = e.cache_write_tokens().unwrap_or(0) as f64;
     Some(inp * ip + out * op + cr * crp + cw * ip * 1.25)
 }
 

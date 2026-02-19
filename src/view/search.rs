@@ -321,9 +321,9 @@ fn write_csv(w: &mut impl Write, all_events: &[&McpEvent]) -> Result<()> {
         } else {
             String::new()
         };
-        let model = e.model.as_deref().unwrap_or("");
-        let in_tok = e.input_tokens.map(|t| t.to_string()).unwrap_or_default();
-        let out_tok = e.output_tokens.map(|t| t.to_string()).unwrap_or_default();
+        let model = e.model().unwrap_or("");
+        let in_tok = e.input_tokens().map(|t| t.to_string()).unwrap_or_default();
+        let out_tok = e.output_tokens().map(|t| t.to_string()).unwrap_or_default();
         let err_trunc = trunc(&error_msg, 80);
         writeln!(
             w,

@@ -43,9 +43,9 @@ impl EventCounts {
                 .filter(|e| matches!(e.outcome, Outcome::Err { .. }))
                 .count(),
             total_us: events.iter().map(|e| e.duration_us).sum(),
-            total_in: events.iter().filter_map(|e| e.input_tokens).sum(),
-            total_out: events.iter().filter_map(|e| e.output_tokens).sum(),
-            total_cr: events.iter().filter_map(|e| e.cache_read_tokens).sum(),
+            total_in: events.iter().filter_map(|e| e.input_tokens()).sum(),
+            total_out: events.iter().filter_map(|e| e.output_tokens()).sum(),
+            total_cr: events.iter().filter_map(|e| e.cache_read_tokens()).sum(),
             total_cost: events.iter().filter_map(|e| event_cost_usd(e)).sum(),
         }
     }
@@ -141,14 +141,14 @@ struct ModelStats {
 pub(super) fn print_models_section(events: &[&McpEvent], sessions: &[(String, Vec<McpEvent>)]) {
     let mut model_counts: HashMap<String, ModelStats> = HashMap::new();
     for e in events {
-        if let Some(m) = e.model.as_deref() {
+        if let Some(m) = e.model() {
             let entry = model_counts
                 .entry(normalize_model(m).to_string())
                 .or_default();
             entry.calls += 1;
-            entry.input += e.input_tokens.unwrap_or(0);
-            entry.output += e.output_tokens.unwrap_or(0);
-            entry.cache_read += e.cache_read_tokens.unwrap_or(0);
+            entry.input += e.input_tokens().unwrap_or(0);
+            entry.output += e.output_tokens().unwrap_or(0);
+            entry.cache_read += e.cache_read_tokens().unwrap_or(0);
             if let Some(c) = event_cost_usd(e) {
                 entry.cost += c;
             }

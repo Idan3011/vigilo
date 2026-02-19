@@ -91,8 +91,8 @@ fn print_session_events(
     tool_filter: Option<&str>,
     expand: bool,
 ) {
-    if let Some(last_tok) = events.iter().rev().find(|e| e.model.is_some()) {
-        let model_str = normalize_model(last_tok.model.as_deref().unwrap_or("unknown"));
+    if let Some(last_tok) = events.iter().rev().find(|e| e.model().is_some()) {
+        let model_str = normalize_model(last_tok.model().unwrap_or("unknown"));
         cprintln!(" │  {DIM}{model_str}{RESET}");
     }
 
@@ -171,9 +171,9 @@ fn print_footer_tokens(
     events: &[McpEvent],
     cursor_tokens: &Option<crate::cursor_usage::CachedSessionTokens>,
 ) {
-    let sum_in: u64 = events.iter().filter_map(|e| e.input_tokens).sum();
-    let sum_out: u64 = events.iter().filter_map(|e| e.output_tokens).sum();
-    let sum_cr: u64 = events.iter().filter_map(|e| e.cache_read_tokens).sum();
+    let sum_in: u64 = events.iter().filter_map(|e| e.input_tokens()).sum();
+    let sum_out: u64 = events.iter().filter_map(|e| e.output_tokens()).sum();
+    let sum_cr: u64 = events.iter().filter_map(|e| e.cache_read_tokens()).sum();
 
     if sum_in > 0 || sum_out > 0 || sum_cr > 0 {
         let cache_str = if sum_cr > 0 {
