@@ -18,7 +18,7 @@ use uuid::Uuid;
 #[tokio::main]
 async fn main() -> Result<()> {
     let ledger_path = std::env::var("VIGILO_LEDGER")
-        .unwrap_or_else(|_| format!("{}/.vigilo/events.jsonl", models::home()));
+        .unwrap_or_else(|_| models::vigilo_path("events.jsonl").to_string_lossy().into_owned());
 
     let raw_args: Vec<String> = std::env::args().skip(1).collect();
 

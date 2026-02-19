@@ -9,10 +9,7 @@ const PREFIX: &str = "enc:v1:";
 
 /// Returns the path to the on-disk key file: `~/.vigilo/encryption.key`
 pub fn key_file_path() -> std::path::PathBuf {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    std::path::Path::new(&home)
-        .join(".vigilo")
-        .join("encryption.key")
+    crate::models::vigilo_path("encryption.key")
 }
 
 /// Try loading key from: env var → key file → None.
@@ -249,9 +246,14 @@ mod tests {
         let key = load_or_create_key().unwrap();
         assert_eq!(key.len(), 32);
 
-        // Second call loads from file (key file now exists)
-        let key2 = load_or_create_key().unwrap();
+        // Verify the file was created and can be loaded directly
+        let key_path = dir.path().join(".vigilo").join("encryption.key");
+        assert!(key_path.exists());
+        let raw = std::fs::read_to_string(&key_path).unwrap();
+        let bytes = STANDARD.decode(raw.trim()).unwrap();
+        let loaded: [u8; 32] = bytes.try_into().unwrap();
+        assert_eq!(key, loaded);
+
         std::env::remove_var("HOME");
-        assert_eq!(key, key2);
     }
 }

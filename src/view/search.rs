@@ -277,7 +277,9 @@ pub fn export(
 }
 
 fn default_export_path(ext: &str) -> String {
-    format!("{}/.vigilo/export.{ext}", crate::models::home())
+    crate::models::vigilo_path(&format!("export.{ext}"))
+        .to_string_lossy()
+        .into_owned()
 }
 
 fn shorten_home(path: &str) -> String {

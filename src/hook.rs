@@ -356,8 +356,7 @@ fn hook_store_response() -> bool {
 }
 
 fn read_cursor_model_from_db(conversation_id: &str) -> Option<String> {
-    let home = crate::models::home();
-    let chats = std::path::Path::new(&home).join(".cursor/chats");
+    let chats = crate::models::home_dir().join(".cursor/chats");
 
     for entry in std::fs::read_dir(&chats).ok()?.flatten() {
         let db = entry.path().join(conversation_id).join("store.db");
@@ -396,8 +395,7 @@ fn extract_last_used_model_from_db(db_path: &std::path::Path) -> Option<String> 
 }
 
 fn read_cursor_model_fallback() -> Option<String> {
-    let home = crate::models::home();
-    let path = std::path::Path::new(&home).join(".cursor/cli-config.json");
+    let path = crate::models::home_dir().join(".cursor/cli-config.json");
     let content = std::fs::read_to_string(path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;
     v["model"]["displayName"]

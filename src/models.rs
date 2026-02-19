@@ -1,26 +1,39 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::path::PathBuf;
 use uuid::Uuid;
 
-pub fn home() -> String {
-    std::env::var("HOME").unwrap_or_else(|_| ".".into())
+/// Returns the user's home directory as a `PathBuf`.
+pub fn home_dir() -> PathBuf {
+    PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
 }
 
-pub fn mcp_session_path() -> String {
-    format!("{}/.vigilo/mcp-session", home())
+/// Returns `~/.vigilo`.
+pub fn vigilo_dir() -> PathBuf {
+    home_dir().join(".vigilo")
+}
+
+/// Returns `~/.vigilo/<subpath>`.
+pub fn vigilo_path(subpath: &str) -> PathBuf {
+    vigilo_dir().join(subpath)
+}
+
+pub fn mcp_session_path() -> PathBuf {
+    vigilo_path("mcp-session")
 }
 
 pub fn shorten_home(path: &str) -> String {
-    let h = home();
-    if !h.is_empty() && path.starts_with(&h) {
-        format!("~{}", &path[h.len()..])
+    let h = home_dir();
+    let h_str = h.to_string_lossy();
+    if !h_str.is_empty() && path.starts_with(h_str.as_ref()) {
+        format!("~{}", &path[h_str.len()..])
     } else {
         path.to_string()
     }
 }
 
 pub fn load_config() -> HashMap<String, String> {
-    let path = format!("{}/.vigilo/config", home());
+    let path = vigilo_path("config");
     let Ok(content) = std::fs::read_to_string(&path) else {
         return HashMap::new();
     };
@@ -238,8 +251,8 @@ mod tests {
 
     #[test]
     fn shorten_home_replaces_prefix() {
-        let h = home();
-        let path = format!("{h}/projects/vigilo");
+        let h = home_dir();
+        let path = format!("{}/projects/vigilo", h.display());
         let short = shorten_home(&path);
         assert!(short.starts_with("~/"));
         assert!(short.ends_with("/projects/vigilo"));
@@ -265,7 +278,9 @@ mod tests {
     #[test]
     fn mcp_session_path_contains_vigilo() {
         let path = mcp_session_path();
-        assert!(path.contains(".vigilo/mcp-session"));
+        let path_str = path.to_string_lossy();
+        assert!(path_str.contains(".vigilo"));
+        assert!(path_str.ends_with("mcp-session"));
     }
 
     #[test]

@@ -188,10 +188,9 @@ fn check_encryption_key(pass: &mut u32, fail: &mut u32) {
 }
 
 fn check_config(pass: &mut u32, _fail: &mut u32) {
-    let home = crate::models::home();
-    let config_path = format!("{home}/.vigilo/config");
+    let config_path = crate::models::vigilo_path("config");
 
-    if !Path::new(&config_path).exists() {
+    if !config_path.exists() {
         cprintln!("  {DIM}-{RESET}  no config file (~/.vigilo/config)");
         return;
     }
@@ -220,7 +219,7 @@ fn check_config(pass: &mut u32, _fail: &mut u32) {
 }
 
 fn check_claude_mcp(pass: &mut u32, fail: &mut u32) {
-    let path = format!("{}/.claude.json", crate::models::home());
+    let path = crate::models::home_dir().join(".claude.json");
     let config = read_json(&path);
     match config {
         None => {
@@ -237,7 +236,7 @@ fn check_claude_mcp(pass: &mut u32, fail: &mut u32) {
 }
 
 fn check_claude_hook(pass: &mut u32, fail: &mut u32) {
-    let path = format!("{}/.claude/settings.json", crate::models::home());
+    let path = crate::models::home_dir().join(".claude/settings.json");
     let config = read_json(&path);
     match config {
         None => {
@@ -257,7 +256,7 @@ fn check_claude_hook(pass: &mut u32, fail: &mut u32) {
 }
 
 fn check_cursor_mcp(pass: &mut u32, fail: &mut u32) {
-    let path = format!("{}/.cursor/mcp.json", crate::models::home());
+    let path = crate::models::home_dir().join(".cursor/mcp.json");
     let config = read_json(&path);
     match config {
         None => {
@@ -301,8 +300,8 @@ fn check_mcp_session(pass: &mut u32) {
     }
 }
 
-fn read_json(path: &str) -> Option<serde_json::Value> {
-    std::fs::read_to_string(path)
+fn read_json(path: impl AsRef<Path>) -> Option<serde_json::Value> {
+    std::fs::read_to_string(path.as_ref())
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
 }

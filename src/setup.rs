@@ -9,7 +9,7 @@ pub async fn run() -> Result<()> {
 
     print_detection(has_claude, has_cursor);
 
-    let default_ledger = format!("{}/.vigilo/events.jsonl", crate::models::home());
+    let default_ledger = crate::models::vigilo_path("events.jsonl").to_string_lossy().into_owned();
     let ledger = prompt(
         &format!("[1/4] Ledger path [{}]", default_ledger),
         &default_ledger,
@@ -147,7 +147,7 @@ fn setup_claude(ledger: &str) -> Result<()> {
 }
 
 fn setup_claude_mcp(ledger: &str) -> Result<()> {
-    let path = format!("{}/.claude.json", crate::models::home());
+    let path = crate::models::home_dir().join(".claude.json").to_string_lossy().into_owned();
     let mut config: serde_json::Value = read_json_or_empty(&path);
 
     if config["mcpServers"].is_null() {
@@ -165,7 +165,7 @@ fn setup_claude_mcp(ledger: &str) -> Result<()> {
 }
 
 fn setup_claude_hook() -> Result<()> {
-    let path = format!("{}/.claude/settings.json", crate::models::home());
+    let path = crate::models::home_dir().join(".claude/settings.json").to_string_lossy().into_owned();
     let mut config: serde_json::Value = read_json_or_empty(&path);
 
     let hooks = config["hooks"].as_object_mut().cloned().unwrap_or_default();
@@ -207,7 +207,7 @@ fn setup_cursor(ledger: &str) -> Result<()> {
 }
 
 fn setup_cursor_mcp(ledger: &str) -> Result<()> {
-    let path = format!("{}/.cursor/mcp.json", crate::models::home());
+    let path = crate::models::home_dir().join(".cursor/mcp.json").to_string_lossy().into_owned();
     let mut config: serde_json::Value = read_json_or_empty(&path);
 
     if config["mcpServers"].is_null() {
@@ -224,7 +224,7 @@ fn setup_cursor_mcp(ledger: &str) -> Result<()> {
 }
 
 fn setup_cursor_hooks() -> Result<()> {
-    let path = format!("{}/.cursor/hooks.json", crate::models::home());
+    let path = crate::models::home_dir().join(".cursor/hooks.json").to_string_lossy().into_owned();
     let mut config = read_json_or_empty(&path);
 
     if config["version"].is_null() {
@@ -276,9 +276,9 @@ fn discover_cursor_db() -> Option<String> {
 const MANAGED_KEYS: &[&str] = &["LEDGER", "CURSOR_DB"];
 
 fn write_config(ledger: &str, encryption_key: Option<&str>, cursor_db: Option<&str>) -> Result<()> {
-    let dir = format!("{}/.vigilo", crate::models::home());
+    let dir = crate::models::vigilo_dir();
     std::fs::create_dir_all(&dir)?;
-    let path = format!("{dir}/config");
+    let path = dir.join("config");
 
     let _ = encryption_key; // key is now stored in ~/.vigilo/encryption.key
     let mut lines = vec![format!("LEDGER={ledger}")];
@@ -300,12 +300,11 @@ fn write_config(ledger: &str, encryption_key: Option<&str>, cursor_db: Option<&s
 }
 
 fn detect_claude() -> bool {
-    std::path::Path::new(&format!("{}/.claude", crate::models::home())).exists()
-        || which("claude").is_some()
+    crate::models::home_dir().join(".claude").exists() || which("claude").is_some()
 }
 
 fn detect_cursor() -> bool {
-    std::path::Path::new(&format!("{}/.cursor", crate::models::home())).exists()
+    crate::models::home_dir().join(".cursor").exists()
         || which("cursor").is_some()
         || crate::cursor_usage::discover_db().is_ok()
 }
@@ -500,7 +499,7 @@ mod tests {
 
     #[test]
     fn home_returns_home_dir() {
-        let h = crate::models::home();
-        assert!(!h.is_empty());
+        let h = crate::models::home_dir();
+        assert!(!h.as_os_str().is_empty());
     }
 }

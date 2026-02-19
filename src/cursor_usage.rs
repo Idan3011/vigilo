@@ -82,14 +82,21 @@ pub fn discover_db() -> Result<String> {
 }
 
 fn candidate_paths() -> Vec<String> {
-    let home = crate::models::home();
+    let home = crate::models::home_dir();
+    let home_str = home.to_string_lossy();
     match detect_platform() {
-        Platform::Wsl => wsl_candidates(&home),
-        Platform::MacOs => vec![format!(
-            "{home}/Library/Application Support/Cursor/{DB_SUFFIX}"
-        )],
+        Platform::Wsl => wsl_candidates(&home_str),
+        Platform::MacOs => vec![home
+            .join("Library/Application Support/Cursor")
+            .join(DB_SUFFIX)
+            .to_string_lossy()
+            .into_owned()],
         Platform::Windows => windows_candidates(),
-        Platform::Linux => vec![format!("{home}/.config/Cursor/{DB_SUFFIX}")],
+        Platform::Linux => vec![home
+            .join(".config/Cursor")
+            .join(DB_SUFFIX)
+            .to_string_lossy()
+            .into_owned()],
     }
 }
 
@@ -203,7 +210,9 @@ fn needs_local_copy(path: &str) -> bool {
 }
 
 fn copy_to_local(src: &str) -> Result<String> {
-    let dest = format!("{}/.vigilo/cursor-state.vscdb", crate::models::home());
+    let dest = crate::models::vigilo_path("cursor-state.vscdb")
+        .to_string_lossy()
+        .into_owned();
     if let Some(parent) = std::path::Path::new(&dest).parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -508,10 +517,10 @@ impl TokenTotals {
     }
 }
 
-const CACHE_FILE: &str = ".vigilo/cursor-tokens.jsonl";
-
 fn cache_path() -> String {
-    format!("{}/{CACHE_FILE}", crate::models::home())
+    crate::models::vigilo_path("cursor-tokens.jsonl")
+        .to_string_lossy()
+        .into_owned()
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]
