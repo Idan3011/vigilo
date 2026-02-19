@@ -50,6 +50,11 @@ impl EventCounts {
         }
     }
 
+    pub fn from_slice(events: &[McpEvent]) -> Self {
+        let refs: Vec<&McpEvent> = events.iter().collect();
+        Self::from_events(&refs)
+    }
+
     pub fn add_cursor_tokens(&mut self, sessions: &[(String, Vec<McpEvent>)]) {
         for (_, events) in sessions {
             if let Some(ct) = cursor_session_tokens(events) {
@@ -316,7 +321,7 @@ pub(super) fn print_expanded_errors(err_events: &[&McpEvent], key: Option<&[u8; 
         let session_short = e.session_id.to_string();
         let session_short = &session_short[..8];
 
-        let arg_raw = super::fmt::maybe_decrypt(key, &super::fmt::primary_arg_pub(&e.arguments));
+        let arg_raw = super::fmt::maybe_decrypt(key, &super::fmt::primary_arg(&e.arguments));
         let err_msg = match &e.outcome {
             Outcome::Err { code, message } => {
                 let code_str = if *code != -1 {

@@ -272,6 +272,7 @@ async fn is_binary_file(path: &std::path::Path) -> bool {
 }
 
 const MAX_SEARCH_DEPTH: u32 = 12;
+const MAX_SEARCH_MATCHES: usize = 5_000;
 
 async fn search(root: &str, pattern: &str, use_regex: bool) -> Result<String, String> {
     let re = if use_regex {
@@ -284,7 +285,14 @@ async fn search(root: &str, pattern: &str, use_regex: bool) -> Result<String, St
     if matches.is_empty() {
         Ok(format!("no matches for '{pattern}'"))
     } else {
-        Ok(matches.join("\n"))
+        let truncated = matches.len() >= MAX_SEARCH_MATCHES;
+        let mut result = matches.join("\n");
+        if truncated {
+            result.push_str(&format!(
+                "\n... (truncated at {MAX_SEARCH_MATCHES} matches)"
+            ));
+        }
+        Ok(result)
     }
 }
 
@@ -309,11 +317,14 @@ async fn search_dir(
     matches: &mut Vec<String>,
     depth: u32,
 ) -> Result<(), String> {
-    if depth > MAX_SEARCH_DEPTH {
+    if depth > MAX_SEARCH_DEPTH || matches.len() >= MAX_SEARCH_MATCHES {
         return Ok(());
     }
     let mut entries = tokio::fs::read_dir(dir).await.map_err(|e| e.to_string())?;
     while let Some(entry) = entries.next_entry().await.map_err(|e| e.to_string())? {
+        if matches.len() >= MAX_SEARCH_MATCHES {
+            return Ok(());
+        }
         let path = entry.path();
         let meta = entry.metadata().await.map_err(|e| e.to_string())?;
         if meta.is_dir() {

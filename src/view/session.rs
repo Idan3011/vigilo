@@ -7,7 +7,7 @@ use super::fmt::{
 use super::{ViewArgs, COLLAPSE_HEAD, COLLAPSE_TAIL};
 use crate::{
     crypto,
-    models::{self, McpEvent, Outcome, Risk},
+    models::{self, McpEvent, Outcome},
 };
 use anyhow::Result;
 
@@ -146,37 +146,24 @@ fn print_session_footer(
     events: &[McpEvent],
     cursor_tokens: &Option<crate::cursor_usage::CachedSessionTokens>,
 ) {
-    let total_us: u64 = events.iter().map(|e| e.duration_us).sum();
-    let reads = events
-        .iter()
-        .filter(|e| matches!(e.risk, Risk::Read))
-        .count();
-    let writes = events
-        .iter()
-        .filter(|e| matches!(e.risk, Risk::Write))
-        .count();
-    let execs = events
-        .iter()
-        .filter(|e| matches!(e.risk, Risk::Exec))
-        .count();
-    let errors = events
-        .iter()
-        .filter(|e| matches!(e.outcome, Outcome::Err { .. }))
-        .count();
+    let c = super::counts::EventCounts::from_slice(events);
 
-    let err_str = if errors > 0 {
-        format!(" · {BRIGHT_RED}{errors} err{RESET}")
+    let err_str = if c.errors > 0 {
+        format!(" · {BRIGHT_RED}{} err{RESET}", c.errors)
     } else {
         String::new()
     };
-    let dur_str = if total_us > 0 {
-        format!(" · {}", models::fmt_duration(total_us))
+    let dur_str = if c.total_us > 0 {
+        format!(" · {}", models::fmt_duration(c.total_us))
     } else {
         String::new()
     };
     cprintln!(
-        " {DIM}└─ {} calls · r:{reads} w:{writes} e:{execs}{}{}{dur_str}{RESET}",
-        events.len(),
+        " {DIM}└─ {} calls · r:{} w:{} e:{}{}{}{dur_str}{RESET}",
+        c.total,
+        c.reads,
+        c.writes,
+        c.execs,
         err_str,
         DIM
     );
