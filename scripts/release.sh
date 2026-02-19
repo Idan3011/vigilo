@@ -3,7 +3,12 @@ set -e
 
 BUMP="${1:-patch}"
 
-CURRENT=$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)"/\1/')
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "Working tree is not clean. Commit or stash changes first."
+  exit 1
+fi
+
+CURRENT=$(grep '^version = ' Cargo.toml | head -1 | cut -d'"' -f2)
 IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
 
 case "$BUMP" in
@@ -19,10 +24,17 @@ esac
 NEXT="${MAJOR}.${MINOR}.${PATCH}"
 TAG="v${NEXT}"
 
+if git rev-parse "$TAG" >/dev/null 2>&1; then
+  echo "Tag $TAG already exists."
+  exit 1
+fi
+
 echo "  ${CURRENT} → ${NEXT}"
 
-sed -i "s/^version = \"${CURRENT}\"/version = \"${NEXT}\"/" Cargo.toml
-cargo check --quiet 2>/dev/null
+sed -i.bak "s/^version = \"${CURRENT}\"/version = \"${NEXT}\"/" Cargo.toml
+rm -f Cargo.toml.bak
+
+cargo check --quiet || { echo "cargo check failed after version bump"; exit 1; }
 
 git add Cargo.toml Cargo.lock
 git commit -m "Release ${TAG}"

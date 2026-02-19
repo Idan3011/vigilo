@@ -58,6 +58,12 @@ elif command -v wget &>/dev/null; then
 fi
 
 if [ "$download_ok" = true ]; then
+  if ! file "$BINARY" | grep -qE 'ELF|Mach-O'; then
+    echo "  Downloaded file is not a valid binary."
+    echo "  The release may not exist yet for $ARTIFACT."
+    rm -f "$BINARY"
+    exit 1
+  fi
   chmod +x "$BINARY"
   echo "  ✓ downloaded pre-built binary"
 else
@@ -83,4 +89,8 @@ fi
 echo "  ✓ vigilo installed: $BINARY"
 echo ""
 
-"$BINARY" setup
+if [ -t 0 ]; then
+  "$BINARY" setup
+else
+  echo "  Run 'vigilo setup' to complete configuration."
+fi
