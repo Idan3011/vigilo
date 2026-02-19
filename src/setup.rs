@@ -9,7 +9,9 @@ pub async fn run() -> Result<()> {
 
     print_detection(has_claude, has_cursor);
 
-    let default_ledger = crate::models::vigilo_path("events.jsonl").to_string_lossy().into_owned();
+    let default_ledger = crate::models::vigilo_path("events.jsonl")
+        .to_string_lossy()
+        .into_owned();
     let ledger = prompt(
         &format!("[1/4] Ledger path [{}]", default_ledger),
         &default_ledger,
@@ -147,7 +149,10 @@ fn setup_claude(ledger: &str) -> Result<()> {
 }
 
 fn setup_claude_mcp(ledger: &str) -> Result<()> {
-    let path = crate::models::home_dir().join(".claude.json").to_string_lossy().into_owned();
+    let path = crate::models::home_dir()
+        .join(".claude.json")
+        .to_string_lossy()
+        .into_owned();
     let mut config: serde_json::Value = read_json_or_empty(&path);
 
     if config["mcpServers"].is_null() {
@@ -165,7 +170,10 @@ fn setup_claude_mcp(ledger: &str) -> Result<()> {
 }
 
 fn setup_claude_hook() -> Result<()> {
-    let path = crate::models::home_dir().join(".claude/settings.json").to_string_lossy().into_owned();
+    let path = crate::models::home_dir()
+        .join(".claude/settings.json")
+        .to_string_lossy()
+        .into_owned();
     let mut config: serde_json::Value = read_json_or_empty(&path);
 
     let hooks = config["hooks"].as_object_mut().cloned().unwrap_or_default();
@@ -207,7 +215,10 @@ fn setup_cursor(ledger: &str) -> Result<()> {
 }
 
 fn setup_cursor_mcp(ledger: &str) -> Result<()> {
-    let path = crate::models::home_dir().join(".cursor/mcp.json").to_string_lossy().into_owned();
+    let path = crate::models::home_dir()
+        .join(".cursor/mcp.json")
+        .to_string_lossy()
+        .into_owned();
     let mut config: serde_json::Value = read_json_or_empty(&path);
 
     if config["mcpServers"].is_null() {
@@ -224,7 +235,10 @@ fn setup_cursor_mcp(ledger: &str) -> Result<()> {
 }
 
 fn setup_cursor_hooks() -> Result<()> {
-    let path = crate::models::home_dir().join(".cursor/hooks.json").to_string_lossy().into_owned();
+    let path = crate::models::home_dir()
+        .join(".cursor/hooks.json")
+        .to_string_lossy()
+        .into_owned();
     let mut config = read_json_or_empty(&path);
 
     if config["version"].is_null() {

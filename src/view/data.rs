@@ -199,9 +199,7 @@ pub(super) fn load_tail_events(ledger_path: &str, n: usize) -> Result<Vec<McpEve
     Ok(events)
 }
 
-pub(super) fn cursor_session_tokens(
-    events: &[McpEvent],
-) -> Option<cursor::CachedSessionTokens> {
+pub(super) fn cursor_session_tokens(events: &[McpEvent]) -> Option<cursor::CachedSessionTokens> {
     let first = events.first()?;
     if first.server != "cursor" {
         return None;
