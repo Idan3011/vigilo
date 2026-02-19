@@ -1,64 +1,52 @@
+use anyhow::{Context, Result};
+use fs2::FileExt;
 use serde::Serialize;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-#[derive(Debug)]
-pub enum LedgerError {
-    Io(std::io::Error),
-    Serialization(serde_json::Error),
-}
+const MAX_SIZE: u64 = 10 * 1024 * 1024;
+const MAX_ROTATED: usize = 5;
 
-impl std::fmt::Display for LedgerError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            LedgerError::Io(e) => write!(f, "ledger I/O error: {}", e),
-            LedgerError::Serialization(e) => write!(f, "ledger serialization error: {}", e),
-        }
-    }
-}
-
-impl From<std::io::Error> for LedgerError {
-    fn from(e: std::io::Error) -> Self {
-        LedgerError::Io(e)
-    }
-}
-
-impl From<serde_json::Error> for LedgerError {
-    fn from(e: serde_json::Error) -> Self {
-        LedgerError::Serialization(e)
-    }
-}
-
-pub fn append_event(event: &impl Serialize, ledger_path: &str) -> Result<(), LedgerError> {
+pub fn append_event(event: &impl Serialize, ledger_path: &str) -> Result<()> {
     let path = Path::new(ledger_path);
 
     if let Some(parent) = path.parent() {
         if !parent.exists() {
-            fs::create_dir_all(parent)?;
+            fs::create_dir_all(parent).context("creating ledger directory")?;
         }
     }
 
-    let mut line = serde_json::to_string(event)?;
-    line.push('\n');
+    let line = {
+        let mut s = serde_json::to_string(event).context("serializing event")?;
+        s.push('\n');
+        s
+    };
 
-    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .context("opening ledger file")?;
+
+    file.lock_exclusive().context("locking ledger file")?;
 
     file.write_all(line.as_bytes())?;
-
     file.flush()?;
-
-    const MAX_SIZE: u64 = 10 * 1024 * 1024;
-    const MAX_ROTATED: usize = 5;
 
     if let Ok(meta) = file.metadata() {
         if meta.len() > MAX_SIZE {
-            drop(file);
+            // still holding lock — safe to rotate
+            drop(file); // releases lock + handle
             if let Err(e) = rotate_and_cleanup(&PathBuf::from(ledger_path), MAX_ROTATED) {
                 eprintln!("[vigilo] ledger rotation failed: {e}");
             }
+        } else {
+            file.unlock().ok();
         }
+    } else {
+        file.unlock().ok();
     }
 
     Ok(())
