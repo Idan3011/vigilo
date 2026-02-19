@@ -1,4 +1,4 @@
-use crate::models::{self, Risk};
+use crate::models::Risk;
 use anyhow::Result;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use uuid::Uuid;
@@ -6,6 +6,16 @@ use uuid::Uuid;
 mod execute;
 mod schema;
 mod tools;
+
+pub(crate) struct ServerContext {
+    pub ledger_path: String,
+    pub session_id: Uuid,
+    pub project_root: Option<String>,
+    pub project_name: Option<String>,
+    pub tag: Option<String>,
+    pub timeout_secs: u64,
+    pub encryption_key: Option<[u8; 32]>,
+}
 
 struct SessionCounters {
     total: u64,
@@ -24,6 +34,16 @@ pub async fn run(ledger_path: String, session_id: Uuid) -> Result<()> {
     }
     eprintln!("[vigilo] timeout={timeout_secs}s");
 
+    let ctx = ServerContext {
+        ledger_path,
+        session_id,
+        project_root,
+        project_name,
+        tag,
+        timeout_secs,
+        encryption_key,
+    };
+
     let mut counters = SessionCounters {
         total: 0,
         reads: 0,
@@ -33,20 +53,10 @@ pub async fn run(ledger_path: String, session_id: Uuid) -> Result<()> {
     };
     let started = std::time::Instant::now();
 
-    process_messages(
-        &ledger_path,
-        session_id,
-        &project_root,
-        &project_name,
-        tag.as_deref(),
-        timeout_secs,
-        encryption_key.as_ref(),
-        &mut counters,
-    )
-    .await?;
+    process_messages(&ctx, &mut counters).await?;
 
     cleanup_mcp_session_file();
-    print_session_summary(session_id, &counters, started.elapsed().as_secs());
+    print_session_summary(ctx.session_id, &counters, started.elapsed().as_secs());
     Ok(())
 }
 
@@ -73,17 +83,7 @@ async fn init_session() -> (Option<String>, Option<String>, Option<String>, u64)
     (project_root, project_name, tag, timeout_secs)
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn process_messages(
-    ledger_path: &str,
-    session_id: Uuid,
-    project_root: &Option<String>,
-    project_name: &Option<String>,
-    tag: Option<&str>,
-    timeout_secs: u64,
-    encryption_key: Option<&[u8; 32]>,
-    counters: &mut SessionCounters,
-) -> Result<()> {
+async fn process_messages(ctx: &ServerContext, counters: &mut SessionCounters) -> Result<()> {
     let mut lines = BufReader::new(tokio::io::stdin()).lines();
     let mut stdout = tokio::io::stdout();
     let mut shutdown = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::interrupt())?;
@@ -106,17 +106,7 @@ async fn process_messages(
             Ok(v) => v,
             Err(_) => continue,
         };
-        let response = dispatch(
-            &msg,
-            ledger_path,
-            session_id,
-            project_root,
-            project_name,
-            tag,
-            timeout_secs,
-            encryption_key,
-        )
-        .await;
+        let response = dispatch(&msg, ctx).await;
         if let Some(response) = response {
             update_counters(&msg, &response, counters);
             let json = serde_json::to_string(&response)?;
@@ -162,36 +152,14 @@ fn print_session_summary(session_id: Uuid, c: &SessionCounters, elapsed: u64) {
     );
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn dispatch(
-    msg: &serde_json::Value,
-    ledger_path: &str,
-    session_id: Uuid,
-    project_root: &Option<String>,
-    project_name: &Option<String>,
-    tag: Option<&str>,
-    timeout_secs: u64,
-    encryption_key: Option<&[u8; 32]>,
-) -> Option<serde_json::Value> {
+async fn dispatch(msg: &serde_json::Value, ctx: &ServerContext) -> Option<serde_json::Value> {
     let method = msg.get("method")?.as_str()?;
 
     match method {
         "initialize" => Some(on_initialize(msg)),
         "ping" => Some(on_ping(msg)),
         "tools/list" => Some(schema::on_tools_list(msg)),
-        "tools/call" => Some(
-            execute::on_tool_call(
-                msg,
-                ledger_path,
-                session_id,
-                project_root,
-                project_name,
-                tag,
-                timeout_secs,
-                encryption_key,
-            )
-            .await,
-        ),
+        "tools/call" => Some(execute::on_tool_call(msg, ctx).await),
         _ => None,
     }
 }
@@ -220,7 +188,7 @@ fn log_event(tool: &str, risk: Risk, duration_us: u64, is_error: bool) {
         Risk::Unknown => "UNKNOWN",
     };
     let status = if is_error { "ERR" } else { "OK " };
-    let dur = models::fmt_duration(duration_us);
+    let dur = crate::view::fmt::fmt_duration(duration_us);
     if matches!(risk, Risk::Exec) {
         eprintln!("⚠  [{status}] {label}  {tool}  ({dur})  ← EXEC");
     } else {

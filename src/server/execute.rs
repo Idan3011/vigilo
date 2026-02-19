@@ -1,26 +1,19 @@
 use crate::{
     crypto, git, ledger,
-    models::{self, McpEvent, Outcome, ProjectContext, Risk},
+    models::{McpEvent, Outcome, ProjectContext, Risk},
 };
 use chrono::Utc;
 use std::time::Instant;
 use uuid::Uuid;
 
-#[allow(clippy::too_many_arguments)]
 pub(super) async fn on_tool_call(
     msg: &serde_json::Value,
-    ledger_path: &str,
-    session_id: Uuid,
-    project_root: &Option<String>,
-    project_name: &Option<String>,
-    tag: Option<&str>,
-    timeout_secs: u64,
-    encryption_key: Option<&[u8; 32]>,
+    ctx: &super::ServerContext,
 ) -> serde_json::Value {
     let (tool, arguments) = parse_tool_call(msg);
     let before_content = capture_before_content(&tool, &arguments).await;
 
-    let (exec, timed_out) = execute_with_timeout(&tool, &arguments, timeout_secs).await;
+    let (exec, timed_out) = execute_with_timeout(&tool, &arguments, ctx.timeout_secs).await;
     let duration_us = exec.1;
     let is_error = exec.0.is_err();
     let risk = Risk::classify(&tool);
@@ -30,23 +23,23 @@ pub(super) async fn on_tool_call(
     super::log_event(&tool, risk, duration_us, is_error);
 
     let (ledger_arguments, ledger_outcome, ledger_diff) =
-        encrypt_for_ledger(encryption_key, &arguments, &outcome, &diff);
-    let project = resolve_project(&arguments, project_root, project_name).await;
+        encrypt_for_ledger(ctx.encryption_key.as_ref(), &arguments, &outcome, &diff);
+    let project = resolve_project(&arguments, &ctx.project_root, &ctx.project_name).await;
 
     let event = build_event(
-        session_id,
+        ctx.session_id,
         &tool,
         ledger_arguments,
         ledger_outcome,
         duration_us,
         risk,
         project,
-        tag,
+        ctx.tag.as_deref(),
         ledger_diff,
         timed_out,
     );
 
-    if let Err(e) = ledger::append_event(&event, ledger_path) {
+    if let Err(e) = ledger::append_event(&event, &ctx.ledger_path) {
         eprintln!("[vigilo] ledger error: {e}");
     }
 
@@ -106,7 +99,7 @@ fn compute_write_diff(
         .and_then(|v| v.as_str())
         .unwrap_or("");
     match before_content {
-        Some(before) => models::compute_unified_diff(before, after),
+        Some(before) => crate::hook_helpers::compute_unified_diff(before, after),
         None => Some("new file".to_string()),
     }
 }
