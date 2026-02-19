@@ -77,10 +77,7 @@ fn count_rotated_files(ledger_path: &str) -> usize {
     let Some(parent) = path.parent() else {
         return 0;
     };
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("events");
+    let stem = crate::ledger::ledger_stem(path);
 
     std::fs::read_dir(parent)
         .map(|entries| {
