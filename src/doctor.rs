@@ -217,7 +217,7 @@ fn check_cursor_db(pass: &mut u32, _fail: &mut u32) {
 }
 
 fn check_mcp_session(pass: &mut u32) {
-    let path = format!("{}/.vigilo/mcp-session", crate::models::home());
+    let path = crate::models::mcp_session_path();
     let Ok(content) = std::fs::read_to_string(&path) else {
         cprintln!("  {DIM}-{RESET}  no active MCP session");
         return;
@@ -242,12 +242,7 @@ fn read_json(path: &str) -> Option<serde_json::Value> {
 }
 
 fn short_path(path: &str) -> String {
-    let home = crate::models::home();
-    if !home.is_empty() && path.starts_with(&home) {
-        format!("~{}", &path[home.len()..])
-    } else {
-        path.to_string()
-    }
+    crate::models::shorten_home(path)
 }
 
 fn ok(msg: &str, pass: &mut u32) {

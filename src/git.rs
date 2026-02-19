@@ -1,5 +1,7 @@
 use tokio::process::Command;
 
+const GIT_TIMEOUT_SECS: u64 = 5;
+
 async fn git(args: &[&str]) -> Option<String> {
     git_in(args, None).await
 }
@@ -10,10 +12,13 @@ async fn git_in(args: &[&str], dir: Option<&str>) -> Option<String> {
     if let Some(d) = dir {
         cmd.current_dir(d);
     }
-    let out = tokio::time::timeout(std::time::Duration::from_secs(5), cmd.output())
-        .await
-        .ok()?
-        .ok()?;
+    let out = tokio::time::timeout(
+        std::time::Duration::from_secs(GIT_TIMEOUT_SECS),
+        cmd.output(),
+    )
+    .await
+    .ok()?
+    .ok()?;
     if out.status.success() {
         Some(String::from_utf8_lossy(&out.stdout).trim().to_string())
     } else {

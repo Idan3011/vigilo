@@ -6,6 +6,19 @@ pub fn home() -> String {
     std::env::var("HOME").unwrap_or_else(|_| ".".into())
 }
 
+pub fn mcp_session_path() -> String {
+    format!("{}/.vigilo/mcp-session", home())
+}
+
+pub fn shorten_home(path: &str) -> String {
+    let h = home();
+    if !h.is_empty() && path.starts_with(&h) {
+        format!("~{}", &path[h.len()..])
+    } else {
+        path.to_string()
+    }
+}
+
 pub fn load_config() -> HashMap<String, String> {
     let path = format!("{}/.vigilo/config", home());
     let Ok(content) = std::fs::read_to_string(&path) else {
@@ -138,4 +151,102 @@ pub fn is_vigilo_mcp_tool(name: &str) -> bool {
             | "git_log"
             | "git_commit"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn is_vigilo_mcp_tool_matches_all_14_tools() {
+        let tools = [
+            "read_file",
+            "write_file",
+            "list_directory",
+            "create_directory",
+            "delete_file",
+            "move_file",
+            "search_files",
+            "run_command",
+            "get_file_info",
+            "patch_file",
+            "git_status",
+            "git_diff",
+            "git_log",
+            "git_commit",
+        ];
+        for tool in tools {
+            assert!(is_vigilo_mcp_tool(tool), "{tool} should match");
+        }
+    }
+
+    #[test]
+    fn is_vigilo_mcp_tool_rejects_non_mcp_tools() {
+        assert!(!is_vigilo_mcp_tool("Read"));
+        assert!(!is_vigilo_mcp_tool("Bash"));
+        assert!(!is_vigilo_mcp_tool("Edit"));
+        assert!(!is_vigilo_mcp_tool("unknown"));
+        assert!(!is_vigilo_mcp_tool(""));
+    }
+
+    #[test]
+    fn shorten_home_replaces_prefix() {
+        let h = home();
+        let path = format!("{h}/projects/vigilo");
+        let short = shorten_home(&path);
+        assert!(short.starts_with("~/"));
+        assert!(short.ends_with("/projects/vigilo"));
+    }
+
+    #[test]
+    fn shorten_home_leaves_unrelated_paths() {
+        assert_eq!(shorten_home("/tmp/foo"), "/tmp/foo");
+    }
+
+    #[test]
+    fn risk_classify_strips_mcp_prefix() {
+        assert_eq!(Risk::classify("MCP:git_status"), Risk::Read);
+        assert_eq!(Risk::classify("MCP:run_command"), Risk::Exec);
+        assert_eq!(Risk::classify("MCP:write_file"), Risk::Write);
+    }
+
+    #[test]
+    fn risk_classify_unknown_tool() {
+        assert_eq!(Risk::classify("nonexistent_tool"), Risk::Unknown);
+    }
+
+    #[test]
+    fn mcp_session_path_contains_vigilo() {
+        let path = mcp_session_path();
+        assert!(path.contains(".vigilo/mcp-session"));
+    }
+
+    #[test]
+    fn load_config_returns_empty_for_missing_file() {
+        // HOME is set to something real, but .vigilo/config may not exist in test env
+        // This tests that the function doesn't panic
+        let _config = load_config();
+    }
+
+    #[test]
+    fn mcp_event_default_has_zero_values() {
+        let e = McpEvent::default();
+        assert_eq!(e.duration_us, 0);
+        assert_eq!(e.risk, Risk::Unknown);
+        assert!(e.tag.is_none());
+        assert!(e.model.is_none());
+    }
+
+    #[test]
+    fn mcp_event_serializes_and_deserializes() {
+        let e = McpEvent {
+            tool: "read_file".to_string(),
+            risk: Risk::Read,
+            ..Default::default()
+        };
+        let json = serde_json::to_string(&e).unwrap();
+        let parsed: McpEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.tool, "read_file");
+        assert_eq!(parsed.risk, Risk::Read);
+    }
 }

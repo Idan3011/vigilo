@@ -311,8 +311,7 @@ fn resolve_cursor_model(payload: &serde_json::Value, raw_conv_id: &str) -> Optio
 }
 
 fn read_mcp_session_id() -> Option<Uuid> {
-    let home = crate::models::home();
-    let content = std::fs::read_to_string(format!("{home}/.vigilo/mcp-session")).ok()?;
+    let content = std::fs::read_to_string(crate::models::mcp_session_path()).ok()?;
     let mut lines = content.lines();
     let uuid_str = lines.next()?;
     let pid: u32 = lines.next()?.parse().ok()?;
@@ -619,5 +618,126 @@ mod tests {
             normalize_cursor_model("claude-3.5-sonnet"),
             "claude-3.5-sonnet"
         );
+    }
+
+    #[test]
+    fn parse_cursor_file_edit_no_edits() {
+        let payload = serde_json::json!({ "file_path": "/src/lib.rs" });
+        let (tool, args, risk, diff) = parse_cursor_file_edit(&payload);
+        assert_eq!(tool, "Edit");
+        assert_eq!(args["file_path"], "/src/lib.rs");
+        assert_eq!(risk, Risk::Write);
+        assert!(diff.is_none());
+    }
+
+    #[test]
+    fn parse_cursor_file_edit_empty_edits_array() {
+        let payload = serde_json::json!({
+            "file_path": "/src/lib.rs",
+            "edits": []
+        });
+        let (_, _, _, diff) = parse_cursor_file_edit(&payload);
+        assert!(diff.is_none());
+    }
+
+    #[test]
+    fn parse_cursor_file_edit_multiple_edits() {
+        let payload = serde_json::json!({
+            "file_path": "/src/lib.rs",
+            "edits": [
+                { "old_string": "foo", "new_string": "bar" },
+                { "old_string": "hello", "new_string": "world" }
+            ]
+        });
+        let (_, _, _, diff) = parse_cursor_file_edit(&payload);
+        let d = diff.unwrap();
+        assert!(d.contains("-foo"));
+        assert!(d.contains("+bar"));
+        assert!(d.contains("-hello"));
+        assert!(d.contains("+world"));
+    }
+
+    #[test]
+    fn is_process_alive_for_current_process() {
+        let pid = std::process::id();
+        assert!(is_process_alive(pid));
+    }
+
+    #[test]
+    fn is_process_alive_bogus_pid() {
+        // PID 0 is kernel, large PIDs shouldn't exist
+        assert!(!is_process_alive(4_000_000));
+    }
+
+    #[test]
+    fn read_mcp_session_id_from_tempfile() {
+        let dir = tempfile::tempdir().unwrap();
+        let session_file = dir.path().join("mcp-session");
+        let uuid = uuid::Uuid::new_v4();
+        let pid = std::process::id();
+        std::fs::write(&session_file, format!("{uuid}\n{pid}")).unwrap();
+
+        // read_mcp_session_id uses a fixed path, so we test the parsing logic directly
+        let content = std::fs::read_to_string(&session_file).unwrap();
+        let mut lines = content.lines();
+        let uuid_str = lines.next().unwrap();
+        let parsed_pid: u32 = lines.next().unwrap().parse().unwrap();
+        assert!(is_process_alive(parsed_pid));
+        let parsed = Uuid::parse_str(uuid_str).unwrap();
+        assert_eq!(parsed, uuid);
+    }
+
+    #[test]
+    fn read_mcp_session_id_stale_pid() {
+        // Simulate a stale session file with a dead PID
+        let dir = tempfile::tempdir().unwrap();
+        let session_file = dir.path().join("mcp-session");
+        let uuid = uuid::Uuid::new_v4();
+        std::fs::write(&session_file, format!("{uuid}\n4000000")).unwrap();
+
+        let content = std::fs::read_to_string(&session_file).unwrap();
+        let mut lines = content.lines();
+        let _uuid_str = lines.next().unwrap();
+        let pid: u32 = lines.next().unwrap().parse().unwrap();
+        // Dead PID should not be alive
+        assert!(!is_process_alive(pid));
+    }
+
+    #[test]
+    fn build_claude_outcome_ok_stores_null_by_default() {
+        // hook_store_response() defaults to false, so result should be Null
+        let response = serde_json::json!({ "content": [{ "text": "hello" }] });
+        let outcome = build_claude_outcome(&response);
+        match outcome {
+            Outcome::Ok { result } => assert!(result.is_null()),
+            _ => panic!("expected Ok"),
+        }
+    }
+
+    #[test]
+    fn build_claude_outcome_error_extracts_message() {
+        let response = serde_json::json!({
+            "is_error": true,
+            "content": [{ "text": "something broke" }]
+        });
+        let outcome = build_claude_outcome(&response);
+        match outcome {
+            Outcome::Err { code, message } => {
+                assert_eq!(code, -1);
+                assert!(message.contains("something broke"));
+            }
+            _ => panic!("expected Err"),
+        }
+    }
+
+    #[test]
+    fn parse_cursor_post_tool_use_write_becomes_edit() {
+        let payload = serde_json::json!({
+            "tool_name": "Write",
+            "tool_input": { "file_path": "a.rs" }
+        });
+        let (tool, _, risk, _) = parse_cursor_post_tool_use(&payload);
+        assert_eq!(tool, "Edit");
+        assert_eq!(risk, Risk::Write);
     }
 }

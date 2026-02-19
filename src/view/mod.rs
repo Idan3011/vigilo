@@ -22,3 +22,4 @@ pub struct ViewArgs {
 
 const COLLAPSE_HEAD: usize = 5;
 const COLLAPSE_TAIL: usize = 5;
+const MAX_TABLE_ROWS: usize = 8;
