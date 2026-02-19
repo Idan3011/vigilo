@@ -111,7 +111,7 @@ fn print_two_column_table(tools: &[(String, usize)], files: &[(String, usize)]) 
     cprintln!("  {BOLD}tools{RESET}                    {BOLD}files{RESET}");
     cprintln!("  {DIM}─────                    ─────{RESET}");
 
-    let max_rows = 8;
+    let max_rows = super::MAX_TABLE_ROWS;
     for i in 0..max_rows {
         let tool_col = if i < tools.len() {
             format!("  {BOLD}{:>4}×{RESET} {:<20}", tools[i].1, tools[i].0)

@@ -6,6 +6,8 @@ use chrono::Utc;
 use std::time::Instant;
 use uuid::Uuid;
 
+const JSONRPC_INTERNAL_ERROR: i32 = -32603;
+
 pub(super) async fn on_tool_call(
     msg: &serde_json::Value,
     ctx: &super::ServerContext,
@@ -125,7 +127,7 @@ fn build_response(
         ),
         Err(e) => (
             Outcome::Err {
-                code: -32603,
+                code: JSONRPC_INTERNAL_ERROR,
                 message: e.clone(),
             },
             serde_json::json!({

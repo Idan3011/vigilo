@@ -40,6 +40,10 @@ pub fn resolve_git_dir(tool: &str, args: &serde_json::Value, cwd: &str) -> Strin
     }
 }
 
+const MAX_DIFF_BYTES: usize = 10_000;
+const TRANSCRIPT_USAGE_TAIL: u64 = 64 * 1024;
+const TRANSCRIPT_DURATION_TAIL: u64 = 512 * 1024;
+
 pub fn compute_unified_diff(old: &str, new: &str) -> Option<String> {
     use similar::{ChangeTag, TextDiff};
 
@@ -59,8 +63,8 @@ pub fn compute_unified_diff(old: &str, new: &str) -> Option<String> {
         }
         out.push('\n');
     }
-    if out.len() > 10_000 {
-        out.truncate(10_000);
+    if out.len() > MAX_DIFF_BYTES {
+        out.truncate(MAX_DIFF_BYTES);
         out.push_str("... (truncated)\n");
     }
     if out.trim().is_empty() {
@@ -148,7 +152,7 @@ pub fn read_transcript_meta(transcript_path: &str, tool_use_id: Option<&str>) ->
 fn scan_transcript_usage(file: &mut std::fs::File, size: u64) -> TranscriptMeta {
     use std::io::{BufRead, Seek, SeekFrom};
 
-    let tail_start = size.saturating_sub(64 * 1024);
+    let tail_start = size.saturating_sub(TRANSCRIPT_USAGE_TAIL);
     let _ = file.seek(SeekFrom::Start(tail_start));
     let mut reader = std::io::BufReader::new(&mut *file);
     if tail_start > 0 {
@@ -191,7 +195,7 @@ fn compute_tool_duration(file: &mut std::fs::File, size: u64, id: &str) -> Optio
     use std::io::{BufRead, Seek, SeekFrom};
 
     let id_bytes = id.as_bytes();
-    let read_from = size.saturating_sub(512 * 1024);
+    let read_from = size.saturating_sub(TRANSCRIPT_DURATION_TAIL);
     file.seek(SeekFrom::Start(read_from)).ok()?;
     let mut reader = std::io::BufReader::new(&mut *file);
     if read_from > 0 {

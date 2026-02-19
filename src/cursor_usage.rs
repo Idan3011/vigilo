@@ -44,6 +44,8 @@ fn is_wsl() -> bool {
 }
 
 const DB_SUFFIX: &str = "User/globalStorage/state.vscdb";
+const CACHE_STALE_SECS: u64 = 3600;
+const MS_PER_DAY: i64 = 86_400_000;
 
 pub fn resolve_db_path() -> Result<String> {
     if let Ok(dir) = std::env::var("CURSOR_DATA_DIR") {
@@ -276,7 +278,7 @@ async fn fetch_summary(client: &reqwest::Client, creds: &Credentials) -> Result<
     let resp = client
         .get(SUMMARY_URL)
         .header("Cookie", auth_cookie(creds))
-        .header("User-Agent", "vigilo/0.1")
+        .header("User-Agent", concat!("vigilo/", env!("CARGO_PKG_VERSION")))
         .send()
         .await
         .context("failed to reach cursor.com/api/usage-summary")?;
@@ -621,7 +623,7 @@ pub fn is_cache_stale() -> bool {
                 .and_then(|t| t.elapsed().ok())
                 .map(|d| d.as_secs())
                 .unwrap_or(u64::MAX);
-            age > 3600
+            age > CACHE_STALE_SECS
         }
         Err(_) => true,
     }
@@ -640,7 +642,7 @@ pub async fn sync(since_days: u32) -> Result<()> {
         .build()?;
 
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let start_ms = now_ms - (since_days as i64 * 86_400_000);
+    let start_ms = now_ms - (since_days as i64 * MS_PER_DAY);
     let events = fetch_all_events(&client, &creds, start_ms, now_ms).await?;
 
     write_cache(&events)?;
@@ -913,7 +915,7 @@ pub async fn run(since_days: u32) -> Result<()> {
     }
 
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let start_ms = now_ms - (since_days as i64 * 86_400_000);
+    let start_ms = now_ms - (since_days as i64 * MS_PER_DAY);
     let events = fetch_all_events(&client, &creds, start_ms, now_ms).await?;
 
     if events.is_empty() {
