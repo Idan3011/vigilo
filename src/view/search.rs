@@ -1,13 +1,13 @@
 use super::data::{load_sessions, LoadFilter};
 use super::fmt::{
-    ceprintln, client_badge, cprintln, diff_badge, diff_summary, fmt_arg, maybe_decrypt,
-    print_colored_diff, risk_decorated, risk_label, short_id, short_path, trunc, BOLD, BRIGHT_RED,
-    CYAN, DIM, GREEN, RED, RESET,
+    ceprintln, client_badge, cprintln, diff_badge, diff_summary, fmt_arg, fmt_duration,
+    maybe_decrypt, print_colored_diff, risk_decorated, risk_label, short_id, short_path, trunc,
+    BOLD, BRIGHT_RED, CYAN, DIM, GREEN, RED, RESET,
 };
 use super::ViewArgs;
 use crate::{
     crypto,
-    models::{self, McpEvent, Outcome, Risk},
+    models::{McpEvent, Outcome, Risk},
 };
 use anyhow::Result;
 use std::fs::File;
@@ -25,6 +25,7 @@ pub fn query(
         since,
         until,
         session,
+        ..LoadFilter::default()
     };
     let sessions = load_sessions(ledger_path, &filter)?;
     let key = crypto::load_key();
@@ -64,7 +65,7 @@ fn print_query_row(e: &McpEvent, key: Option<&[u8; 32]>) {
     let arg = fmt_arg(e, key, project_root);
     let arg_display = trunc(&arg, 40);
     let dur = if e.duration_us > 0 {
-        format!("  {DIM}{}{RESET}", models::fmt_duration(e.duration_us))
+        format!("  {DIM}{}{RESET}", fmt_duration(e.duration_us))
     } else {
         String::new()
     };
@@ -86,13 +87,9 @@ pub fn diff(ledger_path: &str, args: &ViewArgs) -> Result<()> {
         since: args.since.as_deref(),
         until: args.until.as_deref(),
         session: args.session.as_deref(),
+        last: args.last,
     };
-    let mut sessions = load_sessions(ledger_path, &filter)?;
-
-    if let Some(n) = args.last {
-        let skip = sessions.len().saturating_sub(n);
-        sessions.drain(..skip);
-    }
+    let sessions = load_sessions(ledger_path, &filter)?;
 
     if sessions.is_empty() {
         println!("no events with diffs found.");
@@ -246,12 +243,9 @@ pub fn export(
         since: args.since.as_deref(),
         until: args.until.as_deref(),
         session: args.session.as_deref(),
+        last: args.last,
     };
-    let mut sessions = load_sessions(ledger_path, &filter)?;
-    if let Some(n) = args.last {
-        let skip = sessions.len().saturating_sub(n);
-        sessions.drain(..skip);
-    }
+    let sessions = load_sessions(ledger_path, &filter)?;
     let all_events: Vec<&McpEvent> = sessions.iter().flat_map(|(_, e)| e).collect();
 
     if all_events.is_empty() {
@@ -328,7 +322,7 @@ fn write_csv(w: &mut impl Write, all_events: &[&McpEvent]) -> Result<()> {
         let project = e.project.name.as_deref().unwrap_or("");
         let branch = e.project.branch.as_deref().unwrap_or("");
         let dur = if e.duration_us > 0 {
-            models::fmt_duration(e.duration_us)
+            fmt_duration(e.duration_us)
         } else {
             String::new()
         };
@@ -406,7 +400,7 @@ fn print_watch_event(e: &McpEvent, key: Option<&[u8; 32]>) {
     let arg = fmt_arg(e, key, project_root);
     let arg_display = trunc(&arg, 40);
     let dur = if e.duration_us > 0 {
-        format!("  {DIM}{}{RESET}", models::fmt_duration(e.duration_us))
+        format!("  {DIM}{}{RESET}", fmt_duration(e.duration_us))
     } else {
         String::new()
     };

@@ -1,13 +1,13 @@
-use super::data::{cursor_session_tokens, load_sessions, LoadFilter};
+use super::data::{cursor_session_tokens, load_sessions, load_tail_events, LoadFilter};
 use super::fmt::{
-    client_badge, cprintln, diff_badge, fmt_arg, fmt_cost, fmt_tokens, normalize_model,
-    risk_decorated, risk_label, session_cost_usd, short_id, trunc, BOLD, BRIGHT_RED, CYAN, DIM,
-    RESET, YELLOW,
+    client_badge, cprintln, diff_badge, fmt_arg, fmt_cost, fmt_duration, fmt_tokens,
+    normalize_model, risk_decorated, risk_label, session_cost_usd, short_id, trunc, BOLD,
+    BRIGHT_RED, CYAN, DIM, RESET, YELLOW,
 };
 use super::{ViewArgs, COLLAPSE_HEAD, COLLAPSE_TAIL};
 use crate::{
     crypto,
-    models::{self, McpEvent, Outcome},
+    models::{McpEvent, Outcome, ProjectContext},
 };
 use anyhow::Result;
 
@@ -17,13 +17,9 @@ pub fn run(ledger_path: &str, args: ViewArgs) -> Result<()> {
         since: args.since.as_deref(),
         until: args.until.as_deref(),
         session: args.session.as_deref(),
+        last: args.last,
     };
-    let mut sessions = load_sessions(ledger_path, &filter)?;
-
-    if let Some(n) = args.last {
-        let skip = sessions.len().saturating_sub(n);
-        sessions.drain(..skip);
-    }
+    let sessions = load_sessions(ledger_path, &filter)?;
 
     if sessions.is_empty() {
         println!("no events recorded yet.");
@@ -69,7 +65,7 @@ fn print_session_header(sid: &str, first: &McpEvent) {
     }
 }
 
-fn format_project_line(p: &models::ProjectContext) -> String {
+fn format_project_line(p: &ProjectContext) -> String {
     match (p.name.as_deref(), p.branch.as_deref(), p.commit.as_deref()) {
         (Some(name), Some(branch), Some(commit)) => {
             let commit_short = &commit[..7.min(commit.len())];
@@ -129,7 +125,7 @@ fn print_event_row(e: &McpEvent, key: Option<&[u8; 32]>, project_root: Option<&s
     let arg = fmt_arg(e, key, project_root);
     let arg_display = trunc(&arg, 40);
     let dur = if e.duration_us > 0 {
-        format!("  {DIM}{}{RESET}", models::fmt_duration(e.duration_us))
+        format!("  {DIM}{}{RESET}", fmt_duration(e.duration_us))
     } else {
         String::new()
     };
@@ -154,7 +150,7 @@ fn print_session_footer(
         String::new()
     };
     let dur_str = if c.total_us > 0 {
-        format!(" · {}", models::fmt_duration(c.total_us))
+        format!(" · {}", fmt_duration(c.total_us))
     } else {
         String::new()
     };
@@ -221,13 +217,9 @@ pub fn sessions(ledger_path: &str, args: ViewArgs) -> Result<()> {
         since: args.since.as_deref(),
         until: args.until.as_deref(),
         session: None,
+        last: args.last,
     };
-    let mut sessions = load_sessions(ledger_path, &filter)?;
-
-    if let Some(n) = args.last {
-        let skip = sessions.len().saturating_sub(n);
-        sessions.drain(..skip);
-    }
+    let sessions = load_sessions(ledger_path, &filter)?;
 
     if sessions.is_empty() {
         cprintln!("\n  {DIM}no sessions found.{RESET}\n");
@@ -289,32 +281,23 @@ fn print_session_list_row(
     cprintln!(
         "  {badge}  {DIM}{sid_short}{RESET}  {DIM}{date}{RESET}  {CYAN}{project_display:<20}{RESET}  {BOLD}{:>4}{RESET} calls  {}{cost_str}",
         events.len(),
-        models::fmt_duration(total_us)
+        fmt_duration(total_us)
     );
 }
 
 pub fn tail(ledger_path: &str, n: usize) -> Result<()> {
-    let sessions = load_sessions(ledger_path, &LoadFilter::default())?;
+    let events = load_tail_events(ledger_path, n)?;
     let key = crypto::load_key();
 
-    let mut all: Vec<(&McpEvent, &str)> = sessions
-        .iter()
-        .flat_map(|(sid, events)| events.iter().map(move |e| (e, sid.as_str())))
-        .collect();
-
-    all.sort_by_key(|(e, _)| e.timestamp.as_str());
-
-    let skip = all.len().saturating_sub(n);
-    let tail_events = &all[skip..];
-
-    if tail_events.is_empty() {
+    if events.is_empty() {
         println!("no events recorded yet.");
         return Ok(());
     }
 
     println!();
-    for (e, sid) in tail_events {
-        print_tail_row(e, sid, key.as_ref());
+    for e in &events {
+        let sid = e.session_id.to_string();
+        print_tail_row(e, &sid, key.as_ref());
     }
 
     println!();

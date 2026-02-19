@@ -12,6 +12,7 @@ pub(super) struct LoadFilter<'a> {
     pub since: Option<&'a str>,
     pub until: Option<&'a str>,
     pub session: Option<&'a str>,
+    pub last: Option<usize>,
 }
 
 impl LoadFilter<'_> {
@@ -85,7 +86,15 @@ pub(super) fn load_sessions(
     }
 
     let mut map: HashMap<String, Vec<McpEvent>> = HashMap::new();
-    for file_path in &files {
+
+    // When `last` is set, read newest files first so we can stop early
+    let file_order: Vec<&std::path::PathBuf> = if filter.last.is_some() {
+        files.iter().rev().collect()
+    } else {
+        files.iter().collect()
+    };
+
+    for file_path in file_order {
         let Ok(file) = File::open(file_path) else {
             continue;
         };
@@ -108,6 +117,12 @@ pub(super) fn load_sessions(
                 map.entry(sid).or_default().push(event);
             }
         }
+        // Stop reading older files once we have more sessions than needed
+        if let Some(n) = filter.last {
+            if map.len() > n {
+                break;
+            }
+        }
     }
 
     let mut sessions: Vec<(String, Vec<McpEvent>)> = map.into_iter().collect();
@@ -116,7 +131,56 @@ pub(super) fn load_sessions(
         let last_b = b.1.last().map(|e| e.timestamp.as_str()).unwrap_or("");
         last_a.cmp(last_b)
     });
+
+    if let Some(n) = filter.last {
+        let skip = sessions.len().saturating_sub(n);
+        sessions.drain(..skip);
+    }
+
     Ok(sessions)
+}
+
+/// Load the last `n` events from the ledger without grouping by session.
+/// Reads from newest files first and stops early.
+pub(super) fn load_tail_events(ledger_path: &str, n: usize) -> Result<Vec<McpEvent>> {
+    let files = all_ledger_files(ledger_path);
+    if !files.iter().any(|f| f.exists()) {
+        return Err(anyhow::anyhow!(
+            "no ledger found at {ledger_path}\nRun vigilo first to generate events."
+        ));
+    }
+
+    let mut events: Vec<McpEvent> = Vec::new();
+
+    for file_path in files.iter().rev() {
+        let Ok(file) = File::open(file_path) else {
+            continue;
+        };
+        let mut batch: Vec<McpEvent> = BufReader::new(file)
+            .lines()
+            .map_while(Result::ok)
+            .filter(|l| !l.trim().is_empty())
+            .filter_map(|l| {
+                let mut e: McpEvent = serde_json::from_str(&l).ok()?;
+                if e.risk == Risk::Unknown {
+                    e.risk = Risk::classify(&e.tool);
+                }
+                Some(e)
+            })
+            .collect();
+
+        batch.append(&mut events);
+        events = batch;
+
+        if events.len() >= n {
+            break;
+        }
+    }
+
+    events.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
+    let skip = events.len().saturating_sub(n);
+    events.drain(..skip);
+    Ok(events)
 }
 
 pub(super) fn cursor_session_tokens(
@@ -147,4 +211,144 @@ fn session_time_range_ms(events: &[McpEvent]) -> Option<(i64, i64)> {
     let last_ts = events.last().and_then(|e| parse_ts(&e.timestamp))?;
 
     Some((first_ts - 60_000, last_ts + 60_000))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::{McpEvent, Outcome, ProjectContext};
+    use std::io::Write;
+    use uuid::Uuid;
+
+    fn make_event(session_id: Uuid, tool: &str, ts: &str) -> McpEvent {
+        McpEvent {
+            id: Uuid::new_v4(),
+            timestamp: ts.to_string(),
+            session_id,
+            server: "vigilo".to_string(),
+            tool: tool.to_string(),
+            arguments: serde_json::json!({"path": "test.rs"}),
+            outcome: Outcome::Ok {
+                result: serde_json::Value::Null,
+            },
+            duration_us: 100,
+            risk: Risk::Read,
+            project: ProjectContext::default(),
+            ..Default::default()
+        }
+    }
+
+    fn write_events(path: &str, events: &[McpEvent]) {
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(path)
+            .unwrap();
+        for e in events {
+            let mut line = serde_json::to_string(e).unwrap();
+            line.push('\n');
+            file.write_all(line.as_bytes()).unwrap();
+        }
+    }
+
+    #[test]
+    fn load_tail_events_returns_last_n() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("events.jsonl");
+        let path = ledger.to_str().unwrap();
+
+        let sid = Uuid::new_v4();
+        let events: Vec<McpEvent> = (0..10)
+            .map(|i| make_event(sid, "read_file", &format!("2026-02-19T10:{i:02}:00Z")))
+            .collect();
+        write_events(path, &events);
+
+        let tail = load_tail_events(path, 3).unwrap();
+        assert_eq!(tail.len(), 3);
+        assert!(tail[0].timestamp.contains("10:07"));
+        assert!(tail[2].timestamp.contains("10:09"));
+    }
+
+    #[test]
+    fn load_tail_events_returns_all_when_fewer_than_n() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("events.jsonl");
+        let path = ledger.to_str().unwrap();
+
+        let sid = Uuid::new_v4();
+        write_events(
+            path,
+            &[make_event(sid, "read_file", "2026-02-19T10:00:00Z")],
+        );
+
+        let tail = load_tail_events(path, 50).unwrap();
+        assert_eq!(tail.len(), 1);
+    }
+
+    #[test]
+    fn load_sessions_last_limits_sessions() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("events.jsonl");
+        let path = ledger.to_str().unwrap();
+
+        let s1 = Uuid::new_v4();
+        let s2 = Uuid::new_v4();
+        let s3 = Uuid::new_v4();
+        write_events(
+            path,
+            &[
+                make_event(s1, "read_file", "2026-02-19T10:00:00Z"),
+                make_event(s2, "read_file", "2026-02-19T11:00:00Z"),
+                make_event(s3, "read_file", "2026-02-19T12:00:00Z"),
+            ],
+        );
+
+        let filter = LoadFilter {
+            last: Some(2),
+            ..Default::default()
+        };
+        let sessions = load_sessions(path, &filter).unwrap();
+        assert_eq!(sessions.len(), 2);
+        // Should be the two most recent sessions
+        let sids: Vec<Uuid> = sessions.iter().map(|(_, e)| e[0].session_id).collect();
+        assert!(sids.contains(&s2));
+        assert!(sids.contains(&s3));
+    }
+
+    #[test]
+    fn load_sessions_date_filter() {
+        let dir = tempfile::tempdir().unwrap();
+        let ledger = dir.path().join("events.jsonl");
+        let path = ledger.to_str().unwrap();
+
+        let sid = Uuid::new_v4();
+        write_events(
+            path,
+            &[
+                make_event(sid, "read_file", "2026-02-18T10:00:00Z"),
+                make_event(sid, "read_file", "2026-02-19T10:00:00Z"),
+            ],
+        );
+
+        let filter = LoadFilter {
+            since: Some("2026-02-19"),
+            ..Default::default()
+        };
+        let sessions = load_sessions(path, &filter).unwrap();
+        let total_events: usize = sessions.iter().map(|(_, e)| e.len()).sum();
+        assert_eq!(total_events, 1);
+    }
+
+    #[test]
+    fn all_ledger_files_finds_rotated_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("events.jsonl"), "").unwrap();
+        std::fs::write(dir.path().join("events.100.jsonl"), "").unwrap();
+        std::fs::write(dir.path().join("events.200.jsonl"), "").unwrap();
+
+        let files = all_ledger_files(dir.path().join("events.jsonl").to_str().unwrap());
+        assert_eq!(files.len(), 3);
+        // Active file should be last
+        assert!(files.last().unwrap().ends_with("events.jsonl"));
+    }
 }
