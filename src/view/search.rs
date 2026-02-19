@@ -283,14 +283,15 @@ pub fn export(
 }
 
 fn default_export_path(ext: &str) -> String {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
-    format!("{home}/.vigilo/export.{ext}")
+    format!("{}/.vigilo/export.{ext}", crate::models::home())
 }
 
 fn shorten_home(path: &str) -> String {
-    match std::env::var("HOME") {
-        Ok(home) if path.starts_with(&home) => format!("~{}", &path[home.len()..]),
-        _ => path.to_string(),
+    let home = crate::models::home();
+    if !home.is_empty() && path.starts_with(&home) {
+        format!("~{}", &path[home.len()..])
+    } else {
+        path.to_string()
     }
 }
 
@@ -359,7 +360,13 @@ pub async fn watch(ledger_path: &str) -> Result<()> {
             tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
             let pos = file.stream_position()?;
             file = File::open(ledger_path).unwrap_or(file);
-            file.seek(SeekFrom::Start(pos))?;
+            let new_len = file.metadata().map(|m| m.len()).unwrap_or(pos);
+            if new_len < pos {
+                // file was rotated — start from beginning of new file
+                file.seek(SeekFrom::Start(0))?;
+            } else {
+                file.seek(SeekFrom::Start(pos))?;
+            }
             continue;
         }
 

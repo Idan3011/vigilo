@@ -4,7 +4,6 @@ use crate::{
         resolve_git_dir, stable_uuid, write_hook_event,
     },
     models::{McpEvent, Outcome, Risk},
-    server,
 };
 use anyhow::Result;
 use chrono::Utc;
@@ -368,7 +367,7 @@ fn build_cursor_event(
 }
 
 fn read_mcp_session_id() -> Option<Uuid> {
-    let home = std::env::var("HOME").ok()?;
+    let home = crate::models::home();
     let content = std::fs::read_to_string(format!("{home}/.vigilo/mcp-session")).ok()?;
     let mut lines = content.lines();
     let uuid_str = lines.next()?;
@@ -393,7 +392,7 @@ fn is_process_alive(pid: u32) -> bool {
 }
 
 fn hook_store_response() -> bool {
-    let config = server::load_config();
+    let config = crate::models::load_config();
     let val = std::env::var("VIGILO_HOOK_STORE_RESPONSE")
         .ok()
         .or_else(|| config.get("HOOK_STORE_RESPONSE").cloned())
@@ -402,7 +401,7 @@ fn hook_store_response() -> bool {
 }
 
 fn read_cursor_model_from_db(conversation_id: &str) -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
+    let home = crate::models::home();
     let chats = std::path::Path::new(&home).join(".cursor/chats");
 
     for entry in std::fs::read_dir(&chats).ok()?.flatten() {
@@ -442,7 +441,7 @@ fn extract_last_used_model_from_db(db_path: &std::path::Path) -> Option<String> 
 }
 
 fn read_cursor_model_fallback() -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
+    let home = crate::models::home();
     let path = std::path::Path::new(&home).join(".cursor/cli-config.json");
     let content = std::fs::read_to_string(path).ok()?;
     let v: serde_json::Value = serde_json::from_str(&content).ok()?;

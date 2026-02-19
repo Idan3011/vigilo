@@ -51,7 +51,7 @@ pub fn resolve_db_path() -> Result<String> {
         return require_exists(&path, "CURSOR_DATA_DIR points to a missing DB");
     }
 
-    if let Some(path) = read_config_key("CURSOR_DB") {
+    if let Some(path) = crate::models::load_config().get("CURSOR_DB").cloned() {
         if Path::new(&path).exists() {
             return Ok(path);
         }
@@ -80,7 +80,7 @@ pub fn discover_db() -> Result<String> {
 }
 
 fn candidate_paths() -> Vec<String> {
-    let home = home_dir();
+    let home = crate::models::home();
     match detect_platform() {
         Platform::Wsl => wsl_candidates(&home),
         Platform::MacOs => vec![format!(
@@ -201,7 +201,7 @@ fn needs_local_copy(path: &str) -> bool {
 }
 
 fn copy_to_local(src: &str) -> Result<String> {
-    let dest = format!("{}/.vigilo/cursor-state.vscdb", home_dir());
+    let dest = format!("{}/.vigilo/cursor-state.vscdb", crate::models::home());
     if let Some(parent) = std::path::Path::new(&dest).parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -506,27 +506,10 @@ impl TokenTotals {
     }
 }
 
-fn read_config_key(key: &str) -> Option<String> {
-    let home = std::env::var("HOME").ok()?;
-    let config = std::fs::read_to_string(format!("{home}/.vigilo/config")).ok()?;
-    config
-        .lines()
-        .find(|line| {
-            let k = line.split('=').next().unwrap_or("").trim();
-            k == key
-        })
-        .and_then(|line| line.split_once('='))
-        .map(|(_, val)| val.trim().to_string())
-}
-
-fn home_dir() -> String {
-    std::env::var("HOME").unwrap_or_else(|_| ".".into())
-}
-
 const CACHE_FILE: &str = ".vigilo/cursor-tokens.jsonl";
 
 fn cache_path() -> String {
-    format!("{}/{CACHE_FILE}", home_dir())
+    format!("{}/{CACHE_FILE}", crate::models::home())
 }
 
 #[derive(serde::Serialize, serde::Deserialize, Debug)]

@@ -122,7 +122,7 @@ fn check_encryption_key(pass: &mut u32, fail: &mut u32) {
 }
 
 fn check_config(pass: &mut u32, _fail: &mut u32) {
-    let home = home();
+    let home = crate::models::home();
     let config_path = format!("{home}/.vigilo/config");
 
     if !Path::new(&config_path).exists() {
@@ -130,7 +130,7 @@ fn check_config(pass: &mut u32, _fail: &mut u32) {
         return;
     }
 
-    let config = crate::server::load_config();
+    let config = crate::models::load_config();
     if config.is_empty() {
         cprintln!("  {DIM}-{RESET}  config file empty");
     } else {
@@ -154,7 +154,7 @@ fn check_config(pass: &mut u32, _fail: &mut u32) {
 }
 
 fn check_claude_mcp(pass: &mut u32, fail: &mut u32) {
-    let path = format!("{}/.claude.json", home());
+    let path = format!("{}/.claude.json", crate::models::home());
     let config = read_json(&path);
     match config {
         None => {
@@ -171,7 +171,7 @@ fn check_claude_mcp(pass: &mut u32, fail: &mut u32) {
 }
 
 fn check_claude_hook(pass: &mut u32, fail: &mut u32) {
-    let path = format!("{}/.claude/settings.json", home());
+    let path = format!("{}/.claude/settings.json", crate::models::home());
     let config = read_json(&path);
     match config {
         None => {
@@ -191,7 +191,7 @@ fn check_claude_hook(pass: &mut u32, fail: &mut u32) {
 }
 
 fn check_cursor_mcp(pass: &mut u32, fail: &mut u32) {
-    let path = format!("{}/.cursor/mcp.json", home());
+    let path = format!("{}/.cursor/mcp.json", crate::models::home());
     let config = read_json(&path);
     match config {
         None => {
@@ -217,7 +217,7 @@ fn check_cursor_db(pass: &mut u32, _fail: &mut u32) {
 }
 
 fn check_mcp_session(pass: &mut u32) {
-    let path = format!("{}/.vigilo/mcp-session", home());
+    let path = format!("{}/.vigilo/mcp-session", crate::models::home());
     let Ok(content) = std::fs::read_to_string(&path) else {
         cprintln!("  {DIM}-{RESET}  no active MCP session");
         return;
@@ -258,16 +258,12 @@ fn read_json(path: &str) -> Option<serde_json::Value> {
 }
 
 fn short_path(path: &str) -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
+    let home = crate::models::home();
     if !home.is_empty() && path.starts_with(&home) {
         format!("~{}", &path[home.len()..])
     } else {
         path.to_string()
     }
-}
-
-fn home() -> String {
-    std::env::var("HOME").unwrap_or_else(|_| ".".into())
 }
 
 fn ok(msg: &str, pass: &mut u32) {

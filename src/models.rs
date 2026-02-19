@@ -1,5 +1,25 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use uuid::Uuid;
+
+pub fn home() -> String {
+    std::env::var("HOME").unwrap_or_else(|_| ".".into())
+}
+
+pub fn load_config() -> HashMap<String, String> {
+    let path = format!("{}/.vigilo/config", home());
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        return HashMap::new();
+    };
+    content
+        .lines()
+        .filter(|l| !l.trim_start().starts_with('#') && !l.trim().is_empty())
+        .filter_map(|l| {
+            let (k, v) = l.split_once('=')?;
+            Some((k.trim().to_string(), v.trim().to_string()))
+        })
+        .collect()
+}
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct McpEvent {
