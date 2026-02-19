@@ -9,6 +9,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 const MAX_SIZE: u64 = 10 * 1024 * 1024;
 const MAX_ROTATED: usize = 5;
 
+/// Extract the stem from a ledger path (e.g. "events" from "events.jsonl").
+pub(crate) fn ledger_stem(path: &Path) -> &str {
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("events")
+}
+
 pub fn append_event(event: &impl Serialize, ledger_path: &str) -> Result<()> {
     let path = Path::new(ledger_path);
 
@@ -54,10 +61,7 @@ pub fn append_event(event: &impl Serialize, ledger_path: &str) -> Result<()> {
 
 fn rotate_and_cleanup(ledger_path: &PathBuf, keep: usize) -> std::io::Result<()> {
     let parent = ledger_path.parent().unwrap_or_else(|| Path::new("."));
-    let stem = ledger_path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("events");
+    let stem = ledger_stem(ledger_path);
 
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)

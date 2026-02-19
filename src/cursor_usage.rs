@@ -310,7 +310,7 @@ async fn fetch_events(
     let resp = client
         .post(EVENTS_URL)
         .header("Cookie", auth_cookie(creds))
-        .header("User-Agent", "Mozilla/5.0 (compatible; vigilo/0.1)")
+        .header("User-Agent", concat!("vigilo/", env!("CARGO_PKG_VERSION")))
         .header("Origin", "https://cursor.com")
         .header("Referer", "https://cursor.com/settings")
         .json(&body)

@@ -333,14 +333,9 @@ async fn search_dir(
             if SKIP_DIRS.contains(&name_str.as_ref()) {
                 continue;
             }
-            Box::pin(search_dir(
-                path.to_str().unwrap_or(""),
-                pattern,
-                re,
-                matches,
-                depth + 1,
-            ))
-            .await?;
+            if let Some(p) = path.to_str() {
+                Box::pin(search_dir(p, pattern, re, matches, depth + 1)).await?;
+            }
         } else if meta.is_file() {
             if is_binary_file(&path).await {
                 continue;

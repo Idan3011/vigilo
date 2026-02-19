@@ -133,7 +133,7 @@ fn build_response(
             serde_json::json!({
                 "jsonrpc": "2.0",
                 "id": msg["id"],
-                "error": { "code": -32603, "message": e },
+                "error": { "code": JSONRPC_INTERNAL_ERROR, "message": e },
             }),
         ),
     }

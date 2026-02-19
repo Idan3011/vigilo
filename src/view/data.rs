@@ -41,10 +41,7 @@ impl LoadFilter<'_> {
 fn all_ledger_files_with_ts(ledger_path: &str) -> Vec<(std::path::PathBuf, u128)> {
     let path = std::path::Path::new(ledger_path);
     let parent = path.parent().unwrap_or(std::path::Path::new("."));
-    let stem = path
-        .file_stem()
-        .and_then(|s| s.to_str())
-        .unwrap_or("events");
+    let stem = crate::ledger::ledger_stem(path);
     let active_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
 
     let mut files: Vec<(std::path::PathBuf, u128)> = std::fs::read_dir(parent)
