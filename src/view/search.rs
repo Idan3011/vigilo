@@ -9,7 +9,7 @@ use crate::{
     crypto,
     models::{McpEvent, Outcome, Risk},
 };
-use anyhow::Result;
+use anyhow::{Context, Result};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 
@@ -281,12 +281,7 @@ fn default_export_path(ext: &str) -> String {
 }
 
 fn shorten_home(path: &str) -> String {
-    let home = crate::models::home();
-    if !home.is_empty() && path.starts_with(&home) {
-        format!("~{}", &path[home.len()..])
-    } else {
-        path.to_string()
-    }
+    crate::models::shorten_home(path)
 }
 
 fn write_csv(w: &mut impl Write, all_events: &[&McpEvent]) -> Result<()> {
@@ -347,34 +342,69 @@ pub async fn watch(ledger_path: &str) -> Result<()> {
     cprintln!("{DIM}[vigilo]{RESET} watching — ctrl+c to stop");
     println!();
 
+    let (tx, rx) = std::sync::mpsc::channel();
+    let ledger_dir = std::path::Path::new(ledger_path)
+        .parent()
+        .unwrap_or(std::path::Path::new("."))
+        .to_path_buf();
+
+    let mut watcher =
+        notify::recommended_watcher(move |res: Result<notify::Event, notify::Error>| {
+            if let Ok(event) = res {
+                if event.kind.is_modify() || event.kind.is_create() {
+                    let _ = tx.send(());
+                }
+            }
+        })
+        .context("failed to create file watcher")?;
+
+    notify::Watcher::watch(
+        &mut watcher,
+        &ledger_dir,
+        notify::RecursiveMode::NonRecursive,
+    )
+    .context("failed to watch ledger directory")?;
+
     loop {
-        let mut line = String::new();
-        let n = BufReader::new(&file).read_line(&mut line)?;
-        if n == 0 {
-            tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        // Drain pending events (coalesce multiple writes into one read pass)
+        while rx.try_recv().is_ok() {}
+
+        // Read all available lines
+        let mut got_data = false;
+        loop {
+            let mut line = String::new();
+            let n = BufReader::new(&file).read_line(&mut line)?;
+            if n == 0 {
+                break;
+            }
+            got_data = true;
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if let Ok(mut e) = serde_json::from_str::<McpEvent>(trimmed) {
+                if e.risk == Risk::Unknown {
+                    e.risk = Risk::classify(&e.tool);
+                }
+                print_watch_event(&e, key.as_ref());
+            }
+        }
+
+        if !got_data {
+            // Check for rotation (file shrank or was replaced)
             let pos = file.stream_position()?;
-            file = File::open(ledger_path).unwrap_or(file);
-            let new_len = file.metadata().map(|m| m.len()).unwrap_or(pos);
-            if new_len < pos {
-                // file was rotated — start from beginning of new file
-                file.seek(SeekFrom::Start(0))?;
-            } else {
-                file.seek(SeekFrom::Start(pos))?;
+            if let Ok(f) = File::open(ledger_path) {
+                let new_len = f.metadata().map(|m| m.len()).unwrap_or(pos);
+                if new_len < pos {
+                    file = f;
+                    file.seek(SeekFrom::Start(0))?;
+                    continue;
+                }
             }
-            continue;
         }
 
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if let Ok(mut e) = serde_json::from_str::<McpEvent>(trimmed) {
-            if e.risk == Risk::Unknown {
-                e.risk = Risk::classify(&e.tool);
-            }
-            print_watch_event(&e, key.as_ref());
-        }
+        // Block until the next filesystem event (zero CPU when idle)
+        let _ = rx.recv();
     }
 }
 
