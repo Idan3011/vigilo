@@ -255,14 +255,19 @@ pub fn sessions(ledger_path: &str, args: ViewArgs) -> Result<()> {
     println!();
 
     for (sid, events) in &sessions {
-        print_session_list_row(sid, events);
+        let cursor_tokens = cursor_session_tokens(events);
+        print_session_list_row(sid, events, &cursor_tokens);
     }
 
     println!();
     Ok(())
 }
 
-fn print_session_list_row(sid: &str, events: &[McpEvent]) {
+fn print_session_list_row(
+    sid: &str,
+    events: &[McpEvent],
+    cursor_tokens: &Option<crate::cursor_usage::CachedSessionTokens>,
+) {
     let Some(first) = events.first() else {
         return;
     };
@@ -284,6 +289,12 @@ fn print_session_list_row(sid: &str, events: &[McpEvent]) {
     let cost = session_cost_usd(events);
     let cost_str = if cost > 0.0 {
         format!("  {YELLOW}~{}{RESET}", fmt_cost(cost))
+    } else if let Some(ct) = cursor_tokens {
+        if ct.cost_usd > 0.0 {
+            format!("  {YELLOW}${:.2}{RESET}", ct.cost_usd)
+        } else {
+            String::new()
+        }
     } else {
         String::new()
     };

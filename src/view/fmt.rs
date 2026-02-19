@@ -251,6 +251,10 @@ pub(crate) fn print_colored_diff(diff_text: &str) {
     }
 }
 
+pub(crate) fn primary_arg_pub(args: &serde_json::Value) -> serde_json::Value {
+    primary_arg(args)
+}
+
 fn primary_arg(args: &serde_json::Value) -> serde_json::Value {
     args.get("file_path")
         .or_else(|| args.get("path"))

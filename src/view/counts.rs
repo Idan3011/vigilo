@@ -301,6 +301,53 @@ pub(super) fn print_recent_errors(err_events: &[&McpEvent], key: Option<&[u8; 32
     }
 }
 
+pub(super) fn print_expanded_errors(err_events: &[&McpEvent], key: Option<&[u8; 32]>) {
+    println!();
+    cprintln!("  {BOLD}all errors{RESET} ({})", err_events.len());
+    cprintln!("  {DIM}──────────{RESET}");
+    for e in err_events.iter().rev() {
+        let badge = client_badge(&e.server);
+        let time = e
+            .timestamp
+            .get(5..19)
+            .unwrap_or(&e.timestamp)
+            .replace('T', " ");
+        let project = e.project.name.as_deref().unwrap_or("—");
+        let session_short = e.session_id.to_string();
+        let session_short = &session_short[..8];
+
+        let arg_raw = super::fmt::maybe_decrypt(key, &super::fmt::primary_arg_pub(&e.arguments));
+        let err_msg = match &e.outcome {
+            Outcome::Err { code, message } => {
+                let code_str = if *code != -1 {
+                    format!("exit {code}")
+                } else {
+                    String::new()
+                };
+                format!("{code_str}\n{message}")
+            }
+            _ => String::new(),
+        };
+
+        cprintln!(
+            "\n  {badge} {DIM}{time}{RESET}  {BRIGHT_RED}✖{RESET} {BOLD}{}{RESET}  {DIM}[{session_short}]{RESET}",
+            e.tool
+        );
+        cprintln!("    {DIM}project:{RESET} {project}");
+        if !arg_raw.is_empty() && arg_raw != "—" {
+            cprintln!("    {DIM}arg:{RESET}     {arg_raw}");
+        }
+        if !err_msg.trim().is_empty() {
+            for line in err_msg.trim().lines().take(20) {
+                cprintln!("    {RED}{line}{RESET}");
+            }
+            if err_msg.trim().lines().count() > 20 {
+                cprintln!("    {DIM}... truncated{RESET}");
+            }
+        }
+    }
+}
+
 pub(super) fn collect_active_projects(sessions: &[(String, Vec<McpEvent>)]) -> Vec<String> {
     let mut active: Vec<String> = Vec::new();
     for (_, events) in sessions {

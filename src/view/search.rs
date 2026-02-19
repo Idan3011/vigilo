@@ -57,7 +57,7 @@ pub fn query(
 fn print_query_row(e: &McpEvent, key: Option<&[u8; 32]>) {
     let is_error = matches!(e.outcome, Outcome::Err { .. });
     let badge = client_badge(&e.server);
-    let time = e.timestamp.get(11..19).unwrap_or("??:??:??");
+    let date_time = e.timestamp.get(5..19).unwrap_or("??-?? ??:??:??");
     let risk_sym = risk_decorated(e.risk, is_error);
     let tool_name = format!("{BOLD}{:<8}{RESET}", trunc(&e.tool, 8));
     let project_root = e.project.root.as_deref();
@@ -77,7 +77,7 @@ fn print_query_row(e: &McpEvent, key: Option<&[u8; 32]>) {
     let sid_str = e.session_id.to_string();
     let sid_short = short_id(&sid_str);
 
-    cprintln!(" {badge}  {DIM}{time}{RESET}  {risk_sym} {tool_name} {arg_display}{diff}{dur}{timeout}  {DIM}{sid_short}{RESET}");
+    cprintln!(" {badge}  {DIM}{date_time}{RESET}  {risk_sym} {tool_name} {arg_display}{diff}{dur}{timeout}  {DIM}{sid_short}{RESET}");
 }
 
 pub fn diff(ledger_path: &str, args: &ViewArgs) -> Result<()> {
@@ -255,7 +255,7 @@ pub fn export(
     let all_events: Vec<&McpEvent> = sessions.iter().flat_map(|(_, e)| e).collect();
 
     if all_events.is_empty() {
-        println!("no events recorded yet.");
+        eprintln!("no events to export.");
         return Ok(());
     }
 
@@ -297,13 +297,12 @@ fn shorten_home(path: &str) -> String {
 fn write_csv(w: &mut impl Write, all_events: &[&McpEvent]) -> Result<()> {
     writeln!(
         w,
-        "timestamp,session,project,branch,tool,risk,arg,duration,status"
+        "timestamp,session,server,project,branch,tool,risk,arg,duration,status,error,model,input_tokens,output_tokens"
     )?;
     for e in all_events {
-        let status = if matches!(e.outcome, Outcome::Err { .. }) {
-            "error"
-        } else {
-            "ok"
+        let (status, error_msg) = match &e.outcome {
+            Outcome::Err { message, .. } => ("error", message.replace('"', "\"\"").clone()),
+            _ => ("ok", String::new()),
         };
         let risk = format!("{:?}", e.risk).to_lowercase();
         let project_root = e.project.root.as_deref();
@@ -324,6 +323,7 @@ fn write_csv(w: &mut impl Write, all_events: &[&McpEvent]) -> Result<()> {
             .replace('T', " ");
         let sid_str = e.session_id.to_string();
         let sid = short_id(&sid_str);
+        let server = &e.server;
         let project = e.project.name.as_deref().unwrap_or("");
         let branch = e.project.branch.as_deref().unwrap_or("");
         let dur = if e.duration_us > 0 {
@@ -331,9 +331,13 @@ fn write_csv(w: &mut impl Write, all_events: &[&McpEvent]) -> Result<()> {
         } else {
             String::new()
         };
+        let model = e.model.as_deref().unwrap_or("");
+        let in_tok = e.input_tokens.map(|t| t.to_string()).unwrap_or_default();
+        let out_tok = e.output_tokens.map(|t| t.to_string()).unwrap_or_default();
+        let err_trunc = trunc(&error_msg, 80);
         writeln!(
             w,
-            "\"{ts}\",\"{sid}\",\"{project}\",\"{branch}\",\"{}\",\"{risk}\",\"{arg}\",\"{dur}\",\"{status}\"",
+            "\"{ts}\",\"{sid}\",\"{server}\",\"{project}\",\"{branch}\",\"{}\",\"{risk}\",\"{arg}\",\"{dur}\",\"{status}\",\"{err_trunc}\",\"{model}\",\"{in_tok}\",\"{out_tok}\"",
             e.tool
         )?;
     }

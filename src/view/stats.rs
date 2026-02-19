@@ -1,6 +1,6 @@
 use super::counts::{
-    collect_active_projects, print_error_chart, print_models_section, print_projects_section,
-    print_recent_errors, print_tool_file_table, EventCounts,
+    collect_active_projects, print_error_chart, print_expanded_errors, print_models_section,
+    print_projects_section, print_recent_errors, print_tool_file_table, EventCounts,
 };
 use super::data::{load_sessions, LoadFilter};
 use super::fmt::{
@@ -68,7 +68,12 @@ fn print_stats_header(session_count: usize, c: &EventCounts) {
     );
 }
 
-pub fn errors(ledger_path: &str, since: Option<&str>, until: Option<&str>) -> Result<()> {
+pub fn errors(
+    ledger_path: &str,
+    since: Option<&str>,
+    until: Option<&str>,
+    expand: bool,
+) -> Result<()> {
     let key = crypto::load_key();
     let filter = LoadFilter {
         since,
@@ -78,6 +83,12 @@ pub fn errors(ledger_path: &str, since: Option<&str>, until: Option<&str>) -> Re
     let sessions = load_sessions(ledger_path, &filter)?;
 
     let all_events: Vec<&McpEvent> = sessions.iter().flat_map(|(_, e)| e).collect();
+
+    if all_events.is_empty() {
+        cprintln!("\n  {DIM}No events in the given time range.{RESET}\n");
+        return Ok(());
+    }
+
     let err_events: Vec<&McpEvent> = all_events
         .iter()
         .filter(|e| matches!(e.outcome, Outcome::Err { .. }))
@@ -103,7 +114,11 @@ pub fn errors(ledger_path: &str, since: Option<&str>, until: Option<&str>) -> Re
     cprintln!("  {BRIGHT_RED}{err_count}{RESET} errors out of {total} calls ({pct}%)");
 
     print_error_chart(&err_events);
-    print_recent_errors(&err_events, key.as_ref());
+    if expand {
+        print_expanded_errors(&err_events, key.as_ref());
+    } else {
+        print_recent_errors(&err_events, key.as_ref());
+    }
 
     println!();
     Ok(())

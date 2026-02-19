@@ -28,6 +28,15 @@ fn detect_platform() -> Platform {
     Platform::Linux
 }
 
+fn platform_name() -> &'static str {
+    match detect_platform() {
+        Platform::Linux => "Linux",
+        Platform::MacOs => "macOS",
+        Platform::Windows => "Windows",
+        Platform::Wsl => "WSL",
+    }
+}
+
 fn is_wsl() -> bool {
     std::fs::read_to_string("/proc/version")
         .map(|v| v.to_lowercase().contains("microsoft"))
@@ -61,10 +70,10 @@ pub fn discover_db() -> Result<String> {
         .ok_or_else(|| {
             anyhow::anyhow!(
                 "Cursor database not found.\n\
-             Platform: {:?}\n\
+             Platform: {}\n\
              Searched:\n  {}\n\n\
              Run `vigilo setup` to configure, or set CURSOR_DATA_DIR.",
-                detect_platform(),
+                platform_name(),
                 candidates.join("\n  ")
             )
         })
@@ -218,8 +227,8 @@ fn read_credentials(db_path: &str) -> Result<Credentials> {
     };
 
     let user_id = extract_user_id(&query)?;
-    let access_token =
-        query("cursorAuth/accessToken").context("accessToken not found — is Cursor signed in?")?;
+    let access_token = query("cursorAuth/accessToken")
+        .context("Could not read auth token — is Cursor signed in?")?;
     let email = query("cursorAuth/cachedEmail");
     let membership = query("cursorAuth/stripeMembershipType");
 
@@ -233,12 +242,12 @@ fn read_credentials(db_path: &str) -> Result<Credentials> {
 
 fn extract_user_id(query: &dyn Fn(&str) -> Option<String>) -> Result<String> {
     let blob = query("workbench.experiments.statsigBootstrap")
-        .context("statsigBootstrap not found in Cursor DB")?;
+        .context("Could not find user ID in Cursor database")?;
     let parsed: serde_json::Value =
-        serde_json::from_str(&blob).context("statsigBootstrap is not valid JSON")?;
+        serde_json::from_str(&blob).context("Could not parse user data from Cursor database")?;
     parsed["user"]["userID"]
         .as_str()
-        .context("userID not found in statsigBootstrap")
+        .context("User ID missing — your Cursor installation may be unsupported")
         .map(|s| s.to_string())
 }
 
@@ -617,6 +626,26 @@ pub fn aggregate_cached_tokens(events: &[CachedTokenEvent]) -> Option<CachedSess
         cost_usd: cost_cents / 100.0,
         request_count: events.len(),
     })
+}
+
+pub fn is_cache_stale() -> bool {
+    let path = cache_path();
+    match std::fs::metadata(&path) {
+        Ok(meta) => {
+            let age = meta
+                .modified()
+                .ok()
+                .and_then(|t| t.elapsed().ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(u64::MAX);
+            age > 3600
+        }
+        Err(_) => true,
+    }
+}
+
+pub fn has_cursor_db() -> bool {
+    resolve_db_path().is_ok()
 }
 
 pub async fn sync(since_days: u32) -> Result<()> {
