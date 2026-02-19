@@ -12,7 +12,11 @@ pub fn run(ledger_path: &str) {
     check_ledger(ledger_path, &mut pass, &mut fail);
     check_encryption_key(&mut pass, &mut fail);
     check_config(&mut pass, &mut fail);
+    check_claude_mcp(&mut pass, &mut fail);
+    check_claude_hook(&mut pass, &mut fail);
+    check_cursor_mcp(&mut pass, &mut fail);
     check_cursor_db(&mut pass, &mut fail);
+    check_mcp_session(&mut pass);
 
     cprintln!();
     cprintln!(
@@ -28,17 +32,12 @@ fn check_ledger(ledger_path: &str, pass: &mut u32, fail: &mut u32) {
 
     if path.exists() {
         let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
-        let display = if size >= 1_048_576 {
-            format!("{:.1}MB", size as f64 / 1_048_576.0)
-        } else if size >= 1024 {
-            format!("{}KB", size / 1024)
-        } else {
-            format!("{size}B")
-        };
+        let display = format_size(size);
         ok(&format!("ledger exists ({display})"), pass);
+        check_ledger_event_count(ledger_path);
     } else if let Some(parent) = path.parent() {
         if parent.exists() || std::fs::create_dir_all(parent).is_ok() {
-            ok("ledger directory writable", pass);
+            ok("ledger directory writable (no events yet)", pass);
         } else {
             err("ledger directory not writable", fail);
         }
@@ -49,6 +48,27 @@ fn check_ledger(ledger_path: &str, pass: &mut u32, fail: &mut u32) {
     let rotated = count_rotated_files(ledger_path);
     if rotated > 0 {
         cprintln!("  {CYAN}i{RESET}  {rotated} rotated ledger file(s)");
+    }
+}
+
+fn format_size(size: u64) -> String {
+    if size >= 1_048_576 {
+        format!("{:.1}MB", size as f64 / 1_048_576.0)
+    } else if size >= 1024 {
+        format!("{}KB", size / 1024)
+    } else {
+        format!("{size}B")
+    }
+}
+
+fn check_ledger_event_count(ledger_path: &str) {
+    let count = std::fs::read_to_string(ledger_path)
+        .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
+        .unwrap_or(0);
+    if count == 0 {
+        cprintln!("  {CYAN}i{RESET}  ledger has 0 events — is vigilo registered as an MCP server?");
+    } else {
+        cprintln!("  {CYAN}i{RESET}  {count} events in active ledger");
     }
 }
 
@@ -102,7 +122,7 @@ fn check_encryption_key(pass: &mut u32, fail: &mut u32) {
 }
 
 fn check_config(pass: &mut u32, _fail: &mut u32) {
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    let home = home();
     let config_path = format!("{home}/.vigilo/config");
 
     if !Path::new(&config_path).exists() {
@@ -120,9 +140,68 @@ fn check_config(pass: &mut u32, _fail: &mut u32) {
         for key in config.keys() {
             if !matches!(
                 key.as_str(),
-                "TAG" | "TIMEOUT_SECS" | "CURSOR_DB" | "STORE_RESPONSE" | "LEDGER"
+                "TAG"
+                    | "TIMEOUT_SECS"
+                    | "CURSOR_DB"
+                    | "STORE_RESPONSE"
+                    | "HOOK_STORE_RESPONSE"
+                    | "LEDGER"
             ) {
                 cprintln!("  {CYAN}i{RESET}  unknown config key: {key}");
+            }
+        }
+    }
+}
+
+fn check_claude_mcp(pass: &mut u32, fail: &mut u32) {
+    let path = format!("{}/.claude.json", home());
+    let config = read_json(&path);
+    match config {
+        None => {
+            cprintln!("  {DIM}-{RESET}  ~/.claude.json not found");
+        }
+        Some(val) => {
+            if val["mcpServers"]["vigilo"].is_object() {
+                ok("Claude Code MCP server registered", pass);
+            } else {
+                err("vigilo not in ~/.claude.json mcpServers", fail);
+            }
+        }
+    }
+}
+
+fn check_claude_hook(pass: &mut u32, fail: &mut u32) {
+    let path = format!("{}/.claude/settings.json", home());
+    let config = read_json(&path);
+    match config {
+        None => {
+            cprintln!("  {DIM}-{RESET}  ~/.claude/settings.json not found");
+        }
+        Some(val) => {
+            if has_vigilo_hook(&val["hooks"]["PostToolUse"]) {
+                ok("Claude Code PostToolUse hook installed", pass);
+            } else {
+                err(
+                    "vigilo hook not in ~/.claude/settings.json — run 'vigilo setup'",
+                    fail,
+                );
+            }
+        }
+    }
+}
+
+fn check_cursor_mcp(pass: &mut u32, fail: &mut u32) {
+    let path = format!("{}/.cursor/mcp.json", home());
+    let config = read_json(&path);
+    match config {
+        None => {
+            cprintln!("  {DIM}-{RESET}  ~/.cursor/mcp.json not found (optional)");
+        }
+        Some(val) => {
+            if val["mcpServers"]["vigilo"].is_object() {
+                ok("Cursor MCP server registered", pass);
+            } else {
+                err("vigilo not in ~/.cursor/mcp.json mcpServers", fail);
             }
         }
     }
@@ -137,6 +216,47 @@ fn check_cursor_db(pass: &mut u32, _fail: &mut u32) {
     }
 }
 
+fn check_mcp_session(pass: &mut u32) {
+    let path = format!("{}/.vigilo/mcp-session", home());
+    let Ok(content) = std::fs::read_to_string(&path) else {
+        cprintln!("  {DIM}-{RESET}  no active MCP session");
+        return;
+    };
+    let alive = content
+        .lines()
+        .nth(1)
+        .and_then(|p| p.parse::<u32>().ok())
+        .map(|pid| Path::new(&format!("/proc/{pid}")).exists())
+        .unwrap_or(false);
+    if alive {
+        ok("MCP server running (session sync active)", pass);
+    } else {
+        cprintln!("  {DIM}-{RESET}  MCP session file stale (server not running)");
+    }
+}
+
+fn has_vigilo_hook(post_tool_use: &serde_json::Value) -> bool {
+    post_tool_use
+        .as_array()
+        .map(|arr| {
+            arr.iter().any(|h| {
+                h["hooks"]
+                    .as_array()
+                    .and_then(|a| a.first())
+                    .and_then(|x| x["command"].as_str())
+                    .map(|c| c.contains("vigilo"))
+                    == Some(true)
+            })
+        })
+        .unwrap_or(false)
+}
+
+fn read_json(path: &str) -> Option<serde_json::Value> {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|s| serde_json::from_str(&s).ok())
+}
+
 fn short_path(path: &str) -> String {
     let home = std::env::var("HOME").unwrap_or_default();
     if !home.is_empty() && path.starts_with(&home) {
@@ -144,6 +264,10 @@ fn short_path(path: &str) -> String {
     } else {
         path.to_string()
     }
+}
+
+fn home() -> String {
+    std::env::var("HOME").unwrap_or_else(|_| ".".into())
 }
 
 fn ok(msg: &str, pass: &mut u32) {

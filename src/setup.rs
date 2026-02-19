@@ -103,10 +103,13 @@ fn setup_cursor_if_detected(has_cursor: bool, ledger: &str) -> Result<Option<Str
 
 fn print_completion(encryption_key: Option<&str>) {
     println!("\n  Done.\n");
-    println!("  Run:  vigilo view");
+    println!("  Use your AI editor to make some tool calls, then run:");
+    println!("    vigilo view\n");
+    println!("  To verify your setup:");
+    println!("    vigilo doctor");
     if let Some(key) = encryption_key {
-        println!("  Add to your shell profile:");
-        println!("  export VIGILO_ENCRYPTION_KEY={key}");
+        println!("\n  Add to your shell profile:");
+        println!("    export VIGILO_ENCRYPTION_KEY={key}");
     }
     println!();
 }
