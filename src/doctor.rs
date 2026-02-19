@@ -1,4 +1,4 @@
-use crate::view::fmt::{cprintln, BOLD, CYAN, DIM, GREEN, RED, RESET};
+use crate::view::fmt::{cprintln, BOLD, CYAN, DIM, GREEN, RED, RESET, YELLOW};
 use std::path::Path;
 
 pub fn run(ledger_path: &str) {
@@ -143,21 +143,47 @@ fn check_disk_space(ledger_path: &str) {
 }
 
 fn check_encryption_key(pass: &mut u32, fail: &mut u32) {
-    match std::env::var("VIGILO_ENCRYPTION_KEY") {
-        Ok(val) => {
-            use base64::{engine::general_purpose::STANDARD, Engine};
-            match STANDARD.decode(&val) {
-                Ok(bytes) if bytes.len() == 32 => ok("encryption key valid (AES-256)", pass),
-                Ok(bytes) => err(
+    // Check env var first (takes priority)
+    if let Ok(val) = std::env::var("VIGILO_ENCRYPTION_KEY") {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        match STANDARD.decode(&val) {
+            Ok(bytes) if bytes.len() == 32 => {
+                ok("encryption key valid via env var (AES-256)", pass);
+                return;
+            }
+            Ok(bytes) => {
+                err(
                     &format!("encryption key wrong size ({} bytes, need 32)", bytes.len()),
                     fail,
-                ),
-                Err(_) => err("encryption key is not valid base64", fail),
+                );
+                return;
+            }
+            Err(_) => {
+                err("encryption key is not valid base64", fail);
+                return;
             }
         }
-        Err(_) => {
-            cprintln!("  {DIM}-{RESET}  encryption key not set (content stored in plaintext)");
+    }
+
+    // Check key file
+    let key_path = crate::crypto::key_file_path();
+    if key_path.exists() {
+        if crate::crypto::load_key_from_file().is_some() {
+            ok(
+                &format!(
+                    "encryption key valid ({})",
+                    crate::models::shorten_home(&key_path.to_string_lossy())
+                ),
+                pass,
+            );
+        } else {
+            err("encryption key file exists but contains invalid key", fail);
         }
+    } else {
+        cprintln!(
+            "  {YELLOW}!{RESET}  no encryption key — the MCP server will auto-generate one on first run"
+        );
+        cprintln!("  {DIM}   or run `vigilo setup` to create one now{RESET}");
     }
 }
 

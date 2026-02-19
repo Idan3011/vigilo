@@ -27,7 +27,7 @@ struct SessionCounters {
 
 pub async fn run(ledger_path: String, session_id: Uuid) -> Result<()> {
     let (project_root, project_name, tag, timeout_secs) = init_session().await;
-    let encryption_key = crate::crypto::load_key();
+    let encryption_key = crate::crypto::load_or_create_key();
 
     if let Some(ref t) = tag {
         eprintln!("[vigilo] tag={t}");

@@ -57,15 +57,40 @@ fn print_detection(has_claude: bool, has_cursor: bool) {
 
 fn setup_encryption() -> Result<Option<String>> {
     println!("\n[2/4] Encryption");
-    println!("      Encrypt file paths and arguments at rest? (AES-256-GCM)");
-    println!("      Recommended for sensitive codebases. You can enable it later.");
-    if !prompt_yn("      Enable encryption?", false)? {
+
+    let existing = crate::crypto::load_key_from_file().is_some()
+        || std::env::var("VIGILO_ENCRYPTION_KEY").is_ok();
+
+    if existing {
+        println!("      Encryption key already configured ✓");
         return Ok(None);
     }
-    let key = crate::crypto::generate_key_b64();
-    println!("      Generated key: {key}");
-    println!("      ⚠  Save this key — losing it means losing access to encrypted events.");
-    Ok(Some(key))
+
+    println!("      Encrypt file paths and arguments at rest? (AES-256-GCM)");
+    println!("      Note: The MCP server auto-generates a key on first run if none exists.");
+    if !prompt_yn("      Generate encryption key now?", true)? {
+        return Ok(None);
+    }
+
+    match crate::crypto::generate_and_save_key() {
+        Ok(_) => {
+            let path = crate::crypto::key_file_path();
+            println!("      ✓ Key saved to {}", path.display());
+            let b64 = std::fs::read_to_string(&path)
+                .unwrap_or_default()
+                .trim()
+                .to_string();
+            Ok(Some(b64))
+        }
+        Err(e) => {
+            eprintln!("      ! Could not save key file: {e}");
+            let key = crate::crypto::generate_key_b64();
+            println!("      Generated key: {key}");
+            println!("      ⚠  Save this key manually — add to shell profile:");
+            println!("         export VIGILO_ENCRYPTION_KEY={key}");
+            Ok(Some(key))
+        }
+    }
 }
 
 fn setup_claude_if_detected(has_claude: bool, ledger: &str) -> Result<()> {
@@ -107,9 +132,10 @@ fn print_completion(encryption_key: Option<&str>) {
     println!("    vigilo view\n");
     println!("  To verify your setup:");
     println!("    vigilo doctor");
-    if let Some(key) = encryption_key {
-        println!("\n  Add to your shell profile:");
-        println!("    export VIGILO_ENCRYPTION_KEY={key}");
+    if encryption_key.is_some() {
+        let path = crate::crypto::key_file_path();
+        println!("\n  Encryption key saved to: {}", path.display());
+        println!("  Back up this file — losing it means losing access to encrypted events.");
     }
     println!();
 }
@@ -254,14 +280,10 @@ fn write_config(ledger: &str, encryption_key: Option<&str>, cursor_db: Option<&s
     std::fs::create_dir_all(&dir)?;
     let path = format!("{dir}/config");
 
+    let _ = encryption_key; // key is now stored in ~/.vigilo/encryption.key
     let mut lines = vec![format!("LEDGER={ledger}")];
     if let Some(db) = cursor_db {
         lines.push(format!("CURSOR_DB={db}"));
-    }
-    if let Some(key) = encryption_key {
-        lines.push(format!(
-            "# Add to shell profile: export VIGILO_ENCRYPTION_KEY={key}"
-        ));
     }
 
     if let Ok(existing) = std::fs::read_to_string(&path) {

@@ -7,10 +7,74 @@ use base64::{engine::general_purpose::STANDARD, Engine};
 
 const PREFIX: &str = "enc:v1:";
 
+/// Returns the path to the on-disk key file: `~/.vigilo/encryption.key`
+pub fn key_file_path() -> std::path::PathBuf {
+    let home = std::env::var("HOME").unwrap_or_else(|_| ".".into());
+    std::path::Path::new(&home)
+        .join(".vigilo")
+        .join("encryption.key")
+}
+
+/// Try loading key from: env var → key file → None.
 pub fn load_key() -> Option<[u8; 32]> {
+    if let Some(key) = load_key_from_env() {
+        return Some(key);
+    }
+    load_key_from_file()
+}
+
+/// Load key, or auto-generate and persist one if none exists.
+/// Used by the MCP server to ensure encryption is always active.
+pub fn load_or_create_key() -> Option<[u8; 32]> {
+    if let Some(key) = load_key() {
+        return Some(key);
+    }
+    match generate_and_save_key() {
+        Ok(key) => {
+            eprintln!("[vigilo] auto-generated encryption key → {}", key_file_path().display());
+            Some(key)
+        }
+        Err(e) => {
+            eprintln!("[vigilo] warning: could not create encryption key: {e}");
+            eprintln!("[vigilo] events will be stored in plaintext");
+            None
+        }
+    }
+}
+
+fn load_key_from_env() -> Option<[u8; 32]> {
     let raw = std::env::var("VIGILO_ENCRYPTION_KEY").ok()?;
     let bytes = STANDARD.decode(raw.trim()).ok()?;
     bytes.try_into().ok()
+}
+
+/// Load key from `~/.vigilo/encryption.key`.
+pub fn load_key_from_file() -> Option<[u8; 32]> {
+    let path = key_file_path();
+    let raw = std::fs::read_to_string(&path).ok()?;
+    let bytes = STANDARD.decode(raw.trim()).ok()?;
+    bytes.try_into().ok()
+}
+
+/// Generate a new AES-256 key, save it to `~/.vigilo/encryption.key` with mode 600.
+pub fn generate_and_save_key() -> std::io::Result<[u8; 32]> {
+    let mut key = [0u8; 32];
+    OsRng.fill_bytes(&mut key);
+    let b64 = STANDARD.encode(key);
+
+    let path = key_file_path();
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    std::fs::write(&path, format!("{b64}\n"))?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    }
+
+    Ok(key)
 }
 
 pub fn encrypt(key: &[u8; 32], plaintext: &str) -> Result<String, aes_gcm::Error> {
@@ -123,5 +187,71 @@ mod tests {
         assert!(is_encrypted("enc:v1:something"));
         assert!(!is_encrypted("enc:v2:something"));
         assert!(!is_encrypted(""));
+    }
+
+    #[test]
+    fn generate_and_save_key_creates_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let key_path = dir.path().join(".vigilo").join("encryption.key");
+
+        // Directly test the key generation by setting HOME and immediately
+        // capturing the expected path (avoid race with parallel tests)
+        std::env::set_var("HOME", dir.path().to_str().unwrap());
+        let key = generate_and_save_key().unwrap();
+        std::env::remove_var("HOME");
+
+        assert_eq!(key.len(), 32);
+        assert!(key_path.exists(), "key file should exist at {key_path:?}");
+
+        // Verify the file content round-trips
+        let raw = std::fs::read_to_string(&key_path).unwrap();
+        let bytes = STANDARD.decode(raw.trim()).unwrap();
+        let loaded: [u8; 32] = bytes.try_into().unwrap();
+        assert_eq!(key, loaded);
+
+        // Verify file permissions on unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(&key_path).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o600);
+        }
+    }
+
+    #[test]
+    fn load_key_from_file_returns_none_for_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("HOME", dir.path().to_str().unwrap());
+        let result = load_key_from_file();
+        std::env::remove_var("HOME");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn load_key_from_file_returns_none_for_invalid() {
+        let dir = tempfile::tempdir().unwrap();
+        let key_path = dir.path().join(".vigilo").join("encryption.key");
+        std::fs::create_dir_all(key_path.parent().unwrap()).unwrap();
+        std::fs::write(&key_path, "not-valid-base64!!!").unwrap();
+
+        std::env::set_var("HOME", dir.path().to_str().unwrap());
+        let result = load_key_from_file();
+        std::env::remove_var("HOME");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn load_or_create_key_generates_when_missing() {
+        let dir = tempfile::tempdir().unwrap();
+        std::env::remove_var("VIGILO_ENCRYPTION_KEY");
+        std::env::set_var("HOME", dir.path().to_str().unwrap());
+
+        let key = load_or_create_key().unwrap();
+        assert_eq!(key.len(), 32);
+
+        // Second call loads from file (key file now exists)
+        let key2 = load_or_create_key().unwrap();
+        std::env::remove_var("HOME");
+        assert_eq!(key, key2);
     }
 }
