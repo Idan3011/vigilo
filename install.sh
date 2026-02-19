@@ -87,6 +87,41 @@ if ! echo "$PATH" | grep -q "$INSTALL_DIR"; then
 fi
 
 echo "  ✓ vigilo installed: $BINARY"
+
+# ── Shell completions ────────────────────────────────────────────────────────
+if [ -t 0 ]; then
+  SHELL_NAME="$(basename "$SHELL" 2>/dev/null || echo "")"
+  case "$SHELL_NAME" in
+    zsh)  RC_FILE="$HOME/.zshrc"; COMP_LINE='eval "$(vigilo completions zsh)"' ;;
+    bash) RC_FILE="$HOME/.bashrc"; COMP_LINE='eval "$(vigilo completions bash)"' ;;
+    *)
+      if [ -f "$HOME/.bashrc" ]; then
+        RC_FILE="$HOME/.bashrc"; COMP_LINE='eval "$(vigilo completions bash)"'
+      elif [ -f "$HOME/.zshrc" ]; then
+        RC_FILE="$HOME/.zshrc"; COMP_LINE='eval "$(vigilo completions zsh)"'
+      fi
+      ;;
+  esac
+
+  if [ -n "$RC_FILE" ]; then
+    if grep -qF "vigilo completions" "$RC_FILE" 2>/dev/null; then
+      echo "  ✓ shell completions already configured"
+    else
+      printf "  Enable tab completions in %s? [Y/n] " "$(basename "$RC_FILE")"
+      read -r answer
+      case "$answer" in
+        n|N|no|No) echo "  skipped — run 'vigilo completions $SHELL_NAME' manually anytime" ;;
+        *)
+          echo "" >> "$RC_FILE"
+          echo "# vigilo shell completions" >> "$RC_FILE"
+          echo "$COMP_LINE" >> "$RC_FILE"
+          echo "  ✓ shell completions added to $(basename "$RC_FILE")"
+          ;;
+      esac
+    fi
+  fi
+fi
+
 echo ""
 
 if [ -t 0 ]; then
