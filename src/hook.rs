@@ -286,7 +286,7 @@ fn parse_cursor_file_edit(
                 .get("new_string")
                 .and_then(|v| v.as_str())
                 .unwrap_or("");
-            if let Some(d) = crate::models::compute_unified_diff(old, new) {
+            if let Some(d) = crate::hook_helpers::compute_unified_diff(old, new) {
                 out.push_str(&d);
             }
         }

@@ -124,6 +124,14 @@ pub(crate) fn trunc(s: &str, max: usize) -> String {
     }
 }
 
+pub(crate) fn fmt_duration(us: u64) -> String {
+    match us {
+        us if us < 1_000 => format!("{us}µs"),
+        us if us < 1_000_000 => format!("{:.1}ms", us as f64 / 1_000.0),
+        us => format!("{:.1}s", us as f64 / 1_000_000.0),
+    }
+}
+
 pub(crate) fn fmt_tokens(n: u64) -> String {
     match n {
         n if n >= 1_000_000 => format!("{:.1}M", n as f64 / 1_000_000.0),
@@ -287,5 +295,77 @@ pub(crate) fn fmt_arg(e: &McpEvent, key: Option<&[u8; 32]>, project_root: Option
         short_path(&raw, project_root)
     } else {
         trunc(&raw, 50)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn fmt_duration_micros() {
+        assert_eq!(fmt_duration(0), "0µs");
+        assert_eq!(fmt_duration(500), "500µs");
+        assert_eq!(fmt_duration(999), "999µs");
+    }
+
+    #[test]
+    fn fmt_duration_millis() {
+        assert_eq!(fmt_duration(1_000), "1.0ms");
+        assert_eq!(fmt_duration(1_500), "1.5ms");
+        assert_eq!(fmt_duration(999_999), "1000.0ms");
+    }
+
+    #[test]
+    fn fmt_duration_seconds() {
+        assert_eq!(fmt_duration(1_000_000), "1.0s");
+        assert_eq!(fmt_duration(2_500_000), "2.5s");
+    }
+
+    #[test]
+    fn strip_ansi_removes_escape_sequences() {
+        let colored = format!("{BOLD}hello{RESET} {RED}world{RESET}");
+        assert_eq!(strip_ansi(&colored), "hello world");
+    }
+
+    #[test]
+    fn strip_ansi_preserves_plain_text() {
+        assert_eq!(strip_ansi("plain text"), "plain text");
+    }
+
+    #[test]
+    fn short_path_strips_project_root() {
+        assert_eq!(short_path("/a/b/c.rs", Some("/a/b")), "c.rs");
+        assert_eq!(short_path("/a/b/c.rs", Some("/a/b/")), "c.rs");
+    }
+
+    #[test]
+    fn short_path_falls_back_to_filename() {
+        assert_eq!(short_path("/x/y/z.rs", Some("/other")), "z.rs");
+        assert_eq!(short_path("/x/y/z.rs", None), "z.rs");
+    }
+
+    #[test]
+    fn trunc_preserves_short_strings() {
+        assert_eq!(trunc("hi", 10), "hi");
+    }
+
+    #[test]
+    fn trunc_truncates_long_strings() {
+        let result = trunc("hello world", 5);
+        assert!(result.ends_with('…'));
+        assert!(result.len() <= 10); // 4 chars + ellipsis
+    }
+
+    #[test]
+    fn diff_summary_counts_adds_and_removes() {
+        let diff = "+added\n-removed\n context\n+another add\n";
+        assert_eq!(diff_summary(diff), (2, 1));
+    }
+
+    #[test]
+    fn diff_summary_ignores_file_headers() {
+        let diff = "--- a/file\n+++ b/file\n+real add\n";
+        assert_eq!(diff_summary(diff), (1, 0));
     }
 }

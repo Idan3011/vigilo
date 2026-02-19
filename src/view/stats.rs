@@ -4,11 +4,12 @@ use super::counts::{
 };
 use super::data::{load_sessions, LoadFilter};
 use super::fmt::{
-    cprintln, fmt_cost, fmt_tokens, BOLD, BRIGHT_RED, CYAN, DIM, GREEN, RED, RESET, YELLOW,
+    cprintln, fmt_cost, fmt_duration, fmt_tokens, BOLD, BRIGHT_RED, CYAN, DIM, GREEN, RED, RESET,
+    YELLOW,
 };
 use crate::{
     crypto,
-    models::{self, McpEvent, Outcome},
+    models::{McpEvent, Outcome},
 };
 use anyhow::Result;
 
@@ -58,7 +59,7 @@ fn print_stats_header(session_count: usize, c: &EventCounts) {
     cprintln!(
         "  {BOLD}{session_count}{RESET} sessions · {BOLD}{}{RESET} calls{err_display} · {} total",
         c.total,
-        models::fmt_duration(c.total_us)
+        fmt_duration(c.total_us)
     );
     cprintln!(
         "  risk: {CYAN}{} read{RESET} · {YELLOW}{} write{RESET} · {RED}{} exec{RESET}",
@@ -173,7 +174,7 @@ fn print_summary_body(session_count: usize, c: &EventCounts) {
     cprintln!(
         "  {BOLD}{session_count}{RESET} sessions · {BOLD}{}{RESET} calls · {err_str} · {}",
         c.total,
-        models::fmt_duration(c.total_us)
+        fmt_duration(c.total_us)
     );
     cprintln!(
         "  risk: {CYAN}{} read{RESET} · {YELLOW}{} write{RESET} · {RED}{} exec{RESET}",

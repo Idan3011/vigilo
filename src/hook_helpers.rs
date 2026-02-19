@@ -1,6 +1,6 @@
 use crate::{
     git, ledger,
-    models::{self, McpEvent, ProjectContext},
+    models::{McpEvent, ProjectContext},
 };
 use uuid::Uuid;
 
@@ -40,13 +40,43 @@ pub fn resolve_git_dir(tool: &str, args: &serde_json::Value, cwd: &str) -> Strin
     }
 }
 
+pub fn compute_unified_diff(old: &str, new: &str) -> Option<String> {
+    use similar::{ChangeTag, TextDiff};
+
+    let diff = TextDiff::from_lines(old, new);
+    let mut out = String::new();
+    for group in diff.grouped_ops(3) {
+        for op in &group {
+            for change in diff.iter_changes(op) {
+                let prefix = match change.tag() {
+                    ChangeTag::Delete => "-",
+                    ChangeTag::Insert => "+",
+                    ChangeTag::Equal => " ",
+                };
+                out.push_str(prefix);
+                out.push_str(change.value());
+            }
+        }
+        out.push('\n');
+    }
+    if out.len() > 10_000 {
+        out.truncate(10_000);
+        out.push_str("... (truncated)\n");
+    }
+    if out.trim().is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
 pub fn compute_edit_diff(tool: &str, args: &serde_json::Value) -> Option<String> {
     if tool != "Edit" && tool != "MultiEdit" {
         return None;
     }
     let old = args.get("old_string").and_then(|v| v.as_str())?;
     let new = args.get("new_string").and_then(|v| v.as_str())?;
-    models::compute_unified_diff(old, new)
+    compute_unified_diff(old, new)
 }
 
 pub fn extract_error_message(response: &serde_json::Value) -> String {
@@ -486,5 +516,26 @@ mod tests {
 
         assert!(duration.is_some());
         assert_eq!(duration.unwrap(), 1_500_000);
+    }
+
+    #[test]
+    fn compute_unified_diff_returns_diff_for_changes() {
+        let diff = compute_unified_diff("hello\n", "world\n");
+        assert!(diff.is_some());
+        let d = diff.unwrap();
+        assert!(d.contains("-hello"));
+        assert!(d.contains("+world"));
+    }
+
+    #[test]
+    fn compute_unified_diff_returns_none_for_identical() {
+        assert!(compute_unified_diff("same\n", "same\n").is_none());
+    }
+
+    #[test]
+    fn compute_unified_diff_handles_empty_strings() {
+        let diff = compute_unified_diff("", "new content\n");
+        assert!(diff.is_some());
+        assert!(diff.unwrap().contains("+new content"));
     }
 }
