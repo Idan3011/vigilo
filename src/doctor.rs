@@ -131,6 +131,7 @@ fn check_disk_space(ledger_path: &str) {
     let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
     let ret = unsafe { libc::statvfs(dir_cstr.as_ptr(), &mut stat) };
     if ret == 0 {
+        #[allow(clippy::unnecessary_cast)]
         let avail = stat.f_bavail as u64 * stat.f_frsize as u64;
         if avail < 100 * 1024 * 1024 {
             cprintln!(
