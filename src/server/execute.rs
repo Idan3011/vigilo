@@ -26,18 +26,22 @@ pub(super) async fn on_tool_call(
         encrypt_for_ledger(ctx.encryption_key.as_ref(), &arguments, &outcome, &diff);
     let project = resolve_project(&arguments, &ctx.project_root, &ctx.project_name).await;
 
-    let event = build_event(
-        ctx.session_id,
-        &tool,
-        ledger_arguments,
-        ledger_outcome,
+    let event = McpEvent {
+        id: Uuid::new_v4(),
+        timestamp: Utc::now().to_rfc3339(),
+        session_id: ctx.session_id,
+        server: "vigilo".to_string(),
+        tool: tool.to_string(),
+        arguments: ledger_arguments,
+        outcome: ledger_outcome,
         duration_us,
         risk,
         project,
-        ctx.tag.as_deref(),
-        ledger_diff,
+        tag: ctx.tag.clone(),
+        diff: ledger_diff,
         timed_out,
-    );
+        ..Default::default()
+    };
 
     if let Err(e) = ledger::append_event(&event, &ctx.ledger_path) {
         eprintln!("[vigilo] ledger error: {e}");
@@ -208,37 +212,6 @@ async fn resolve_project(
         branch,
         commit,
         dirty,
-    }
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_event(
-    session_id: Uuid,
-    tool: &str,
-    arguments: serde_json::Value,
-    outcome: Outcome,
-    duration_us: u64,
-    risk: Risk,
-    project: ProjectContext,
-    tag: Option<&str>,
-    diff: Option<String>,
-    timed_out: bool,
-) -> McpEvent {
-    McpEvent {
-        id: Uuid::new_v4(),
-        timestamp: Utc::now().to_rfc3339(),
-        session_id,
-        server: "vigilo".to_string(),
-        tool: tool.to_string(),
-        arguments,
-        outcome,
-        duration_us,
-        risk,
-        project,
-        tag: tag.map(|t| t.to_string()),
-        diff,
-        timed_out,
-        ..Default::default()
     }
 }
 

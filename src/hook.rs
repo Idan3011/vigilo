@@ -61,19 +61,30 @@ async fn handle_claude_hook(payload: &serde_json::Value, ledger_path: &str) -> R
         .map(|p| read_transcript_meta(p, tool_use_id_str))
         .unwrap_or_default();
 
-    let event = build_claude_event(
+    let event = McpEvent {
+        id: Uuid::new_v4(),
+        timestamp: Utc::now().to_rfc3339(),
         session_id,
-        tool_name,
+        server: "claude-code".to_string(),
+        tool: tool_name,
         arguments,
         outcome,
+        duration_us: tmeta.duration_us.unwrap_or(0),
         risk,
         project,
         tag,
         diff,
-        &tmeta,
-        payload,
-        tool_use_id_str,
-    );
+        model: tmeta.model.clone(),
+        input_tokens: tmeta.input_tokens,
+        output_tokens: tmeta.output_tokens,
+        cache_read_tokens: tmeta.cache_read_tokens,
+        cache_write_tokens: tmeta.cache_write_tokens,
+        stop_reason: tmeta.stop_reason.clone(),
+        service_tier: tmeta.service_tier.clone(),
+        permission_mode: payload["permission_mode"].as_str().map(|s| s.to_string()),
+        tool_use_id: tool_use_id_str.map(|s| s.to_string()),
+        ..Default::default()
+    };
 
     write_hook_event(&event, ledger_path);
     Ok(())
@@ -132,46 +143,6 @@ fn build_claude_outcome(response: &serde_json::Value) -> Outcome {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn build_claude_event(
-    session_id: Uuid,
-    tool_name: String,
-    arguments: serde_json::Value,
-    outcome: Outcome,
-    risk: Risk,
-    project: crate::models::ProjectContext,
-    tag: Option<String>,
-    diff: Option<String>,
-    tmeta: &crate::hook_helpers::TranscriptMeta,
-    payload: &serde_json::Value,
-    tool_use_id_str: Option<&str>,
-) -> McpEvent {
-    McpEvent {
-        id: Uuid::new_v4(),
-        timestamp: Utc::now().to_rfc3339(),
-        session_id,
-        server: "claude-code".to_string(),
-        tool: tool_name,
-        arguments,
-        outcome,
-        duration_us: tmeta.duration_us.unwrap_or(0),
-        risk,
-        project,
-        tag,
-        diff,
-        model: tmeta.model.clone(),
-        input_tokens: tmeta.input_tokens,
-        output_tokens: tmeta.output_tokens,
-        cache_read_tokens: tmeta.cache_read_tokens,
-        cache_write_tokens: tmeta.cache_write_tokens,
-        stop_reason: tmeta.stop_reason.clone(),
-        service_tier: tmeta.service_tier.clone(),
-        permission_mode: payload["permission_mode"].as_str().map(|s| s.to_string()),
-        tool_use_id: tool_use_id_str.map(|s| s.to_string()),
-        ..Default::default()
-    }
-}
-
 async fn handle_cursor_hook(payload: &serde_json::Value, ledger_path: &str) -> Result<()> {
     let hook_event = payload["hook_event_name"].as_str().unwrap_or("PostToolUse");
     if matches!(hook_event, "stop" | "beforeSubmitPrompt") {
@@ -203,18 +174,24 @@ async fn handle_cursor_hook(payload: &serde_json::Value, ledger_path: &str) -> R
         .unwrap_or(0);
     let model = resolve_cursor_model(payload, payload["conversation_id"].as_str().unwrap_or(""));
 
-    let event = build_cursor_event(
+    let event = McpEvent {
+        id: Uuid::new_v4(),
+        timestamp: Utc::now().to_rfc3339(),
         session_id,
-        tool_name,
+        server: "cursor".to_string(),
+        tool: tool_name,
         arguments,
+        duration_us,
         risk,
         project,
         tag,
         diff,
-        duration_us,
         model,
-        payload,
-    );
+        tool_use_id: payload["tool_use_id"].as_str().map(|s| s.to_string()),
+        cursor_version: payload["cursor_version"].as_str().map(|s| s.to_string()),
+        generation_id: payload["generation_id"].as_str().map(|s| s.to_string()),
+        ..Default::default()
+    };
 
     write_hook_event(&event, ledger_path);
     Ok(())
@@ -331,39 +308,6 @@ fn resolve_cursor_model(payload: &serde_json::Value, raw_conv_id: &str) -> Optio
         .or_else(|| read_cursor_model_from_db(raw_conv_id))
         .or_else(read_cursor_model_fallback)
         .map(|s| normalize_cursor_model(&s))
-}
-
-#[allow(clippy::too_many_arguments)]
-fn build_cursor_event(
-    session_id: Uuid,
-    tool_name: String,
-    arguments: serde_json::Value,
-    risk: Risk,
-    project: crate::models::ProjectContext,
-    tag: Option<String>,
-    diff: Option<String>,
-    duration_us: u64,
-    model: Option<String>,
-    payload: &serde_json::Value,
-) -> McpEvent {
-    McpEvent {
-        id: Uuid::new_v4(),
-        timestamp: Utc::now().to_rfc3339(),
-        session_id,
-        server: "cursor".to_string(),
-        tool: tool_name,
-        arguments,
-        duration_us,
-        risk,
-        project,
-        tag,
-        diff,
-        model,
-        tool_use_id: payload["tool_use_id"].as_str().map(|s| s.to_string()),
-        cursor_version: payload["cursor_version"].as_str().map(|s| s.to_string()),
-        generation_id: payload["generation_id"].as_str().map(|s| s.to_string()),
-        ..Default::default()
-    }
 }
 
 fn read_mcp_session_id() -> Option<Uuid> {
