@@ -10,6 +10,7 @@ pub fn run(ledger_path: &str) {
     let mut fail = 0;
 
     check_ledger(ledger_path, &mut pass, &mut fail);
+    check_disk_space(ledger_path);
     check_encryption_key(&mut pass, &mut fail);
     check_config(&mut pass, &mut fail);
     check_claude_mcp(&mut pass, &mut fail);
@@ -45,9 +46,13 @@ fn check_ledger(ledger_path: &str, pass: &mut u32, fail: &mut u32) {
         err("ledger path invalid", fail);
     }
 
-    let rotated = count_rotated_files(ledger_path);
+    let (rotated, rotated_size) = count_rotated_files(ledger_path);
     if rotated > 0 {
-        cprintln!("  {CYAN}i{RESET}  {rotated} rotated ledger file(s)");
+        let active_size = std::fs::metadata(Path::new(ledger_path))
+            .map(|m| m.len())
+            .unwrap_or(0);
+        let total = format_size(active_size + rotated_size);
+        cprintln!("  {CYAN}i{RESET}  {rotated} rotated ledger file(s) ({total} total)");
     }
 }
 
@@ -62,41 +67,78 @@ fn format_size(size: u64) -> String {
 }
 
 fn check_ledger_event_count(ledger_path: &str) {
-    let count = std::fs::read_to_string(ledger_path)
-        .map(|s| s.lines().filter(|l| !l.trim().is_empty()).count())
-        .unwrap_or(0);
-    if count == 0 {
+    let content = match std::fs::read_to_string(ledger_path) {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    let lines: Vec<&str> = content.lines().filter(|l| !l.trim().is_empty()).collect();
+    let total = lines.len();
+
+    if total == 0 {
         cprintln!("  {CYAN}i{RESET}  ledger has 0 events — is vigilo registered as an MCP server?");
+        return;
+    }
+
+    let bad = lines
+        .iter()
+        .filter(|l| serde_json::from_str::<serde_json::Value>(l).is_err())
+        .count();
+
+    if bad == 0 {
+        cprintln!("  {CYAN}i{RESET}  {total} events in active ledger (all valid JSON)");
     } else {
-        cprintln!("  {CYAN}i{RESET}  {count} events in active ledger");
+        cprintln!("  {RED}!{RESET}  {total} events in active ledger ({bad} malformed line(s))");
     }
 }
 
-fn count_rotated_files(ledger_path: &str) -> usize {
+fn count_rotated_files(ledger_path: &str) -> (usize, u64) {
     let path = Path::new(ledger_path);
     let Some(parent) = path.parent() else {
-        return 0;
+        return (0, 0);
     };
     let stem = crate::ledger::ledger_stem(path);
+    let active_name = path
+        .file_name()
+        .unwrap_or_default()
+        .to_string_lossy()
+        .to_string();
 
-    std::fs::read_dir(parent)
-        .map(|entries| {
-            entries
-                .filter_map(|e| e.ok())
-                .filter(|e| {
-                    let name = e.file_name().to_string_lossy().to_string();
-                    name.starts_with(stem)
-                        && name.ends_with(".jsonl")
-                        && name
-                            != path
-                                .file_name()
-                                .unwrap_or_default()
-                                .to_string_lossy()
-                                .as_ref()
-                })
-                .count()
-        })
-        .unwrap_or(0)
+    let mut count = 0usize;
+    let mut size = 0u64;
+    if let Ok(entries) = std::fs::read_dir(parent) {
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().to_string();
+            if name.starts_with(stem) && name.ends_with(".jsonl") && name != active_name {
+                count += 1;
+                size += entry.metadata().map(|m| m.len()).unwrap_or(0);
+            }
+        }
+    }
+    (count, size)
+}
+
+fn check_disk_space(ledger_path: &str) {
+    let dir = Path::new(ledger_path)
+        .parent()
+        .unwrap_or_else(|| Path::new("."));
+
+    let dir_cstr = match std::ffi::CString::new(dir.to_string_lossy().as_bytes().to_vec()) {
+        Ok(c) => c,
+        Err(_) => return,
+    };
+
+    let mut stat: libc::statvfs = unsafe { std::mem::zeroed() };
+    let ret = unsafe { libc::statvfs(dir_cstr.as_ptr(), &mut stat) };
+    if ret == 0 {
+        let avail = stat.f_bavail as u64 * stat.f_frsize as u64;
+        if avail < 100 * 1024 * 1024 {
+            cprintln!(
+                "  {RED}!{RESET}  low disk space: {} available on ledger filesystem",
+                format_size(avail)
+            );
+        }
+    }
 }
 
 fn check_encryption_key(pass: &mut u32, fail: &mut u32) {
