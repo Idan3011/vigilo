@@ -469,6 +469,20 @@ mod tests {
             .ends_with(dir.path().file_name().unwrap().to_str().unwrap()));
     }
 
+    #[test]
+    fn tool_names_match_vigilo_tools() {
+        use super::super::tools::TOOL_NAMES;
+        use crate::models::VIGILO_TOOLS;
+        use std::collections::HashSet;
+
+        let exec_names: HashSet<&str> = TOOL_NAMES.iter().copied().collect();
+        let model_names: HashSet<&str> = VIGILO_TOOLS.iter().map(|(n, _)| *n).collect();
+        assert_eq!(
+            exec_names, model_names,
+            "tools.rs TOOL_NAMES and models.rs VIGILO_TOOLS must list the same tools"
+        );
+    }
+
     #[tokio::test]
     async fn execute_search_files_skips_binary_files() {
         let dir = tempdir().unwrap();

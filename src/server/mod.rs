@@ -314,4 +314,22 @@ mod tests {
         let ctx = test_ctx("/tmp/test.jsonl");
         assert!(dispatch(&msg, &ctx).await.is_none());
     }
+
+    #[test]
+    fn schema_tool_names_match_tool_names() {
+        use std::collections::HashSet;
+        let msg = json!({ "id": 1 });
+        let resp = schema::on_tools_list(&msg);
+        let schema_names: HashSet<&str> = resp["result"]["tools"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(|t| t["name"].as_str())
+            .collect();
+        let tool_names: HashSet<&str> = tools::TOOL_NAMES.iter().copied().collect();
+        assert_eq!(
+            schema_names, tool_names,
+            "schema.rs tool schemas and tools.rs TOOL_NAMES must list the same tools"
+        );
+    }
 }

@@ -1,3 +1,22 @@
+/// Names of all tools handled by execute(). Used for cross-check tests.
+#[cfg(test)]
+pub(crate) const TOOL_NAMES: &[&str] = &[
+    "read_file",
+    "write_file",
+    "list_directory",
+    "create_directory",
+    "delete_file",
+    "move_file",
+    "search_files",
+    "run_command",
+    "get_file_info",
+    "git_status",
+    "git_diff",
+    "git_log",
+    "git_commit",
+    "patch_file",
+];
+
 pub(super) fn arg_str<'a>(args: &'a serde_json::Value, key: &str) -> Result<&'a str, String> {
     args.get(key)
         .and_then(|v| v.as_str())

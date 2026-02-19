@@ -172,21 +172,43 @@ pub enum Risk {
     Unknown,
 }
 
+/// Single source of truth: vigilo MCP tool name → risk level.
+/// Both `is_vigilo_mcp_tool` and the vigilo branch of `Risk::classify` derive from this.
+pub const VIGILO_TOOLS: &[(&str, Risk)] = &[
+    ("read_file", Risk::Read),
+    ("write_file", Risk::Write),
+    ("list_directory", Risk::Read),
+    ("create_directory", Risk::Write),
+    ("delete_file", Risk::Write),
+    ("move_file", Risk::Write),
+    ("search_files", Risk::Read),
+    ("run_command", Risk::Exec),
+    ("get_file_info", Risk::Read),
+    ("patch_file", Risk::Write),
+    ("git_status", Risk::Read),
+    ("git_diff", Risk::Read),
+    ("git_log", Risk::Read),
+    ("git_commit", Risk::Write),
+];
+
 impl Risk {
     pub fn classify(tool: &str) -> Self {
         let tool = tool.strip_prefix("MCP:").unwrap_or(tool);
 
+        // Check vigilo MCP tools first (from single source of truth)
+        if let Some((_, risk)) = VIGILO_TOOLS.iter().find(|(name, _)| *name == tool) {
+            return *risk;
+        }
+
+        // Non-vigilo tools (Claude Code / Cursor builtins)
         match tool {
-            "Bash" | "Shell" | "run_command" => Risk::Exec,
+            "Bash" | "Shell" => Risk::Exec,
 
-            "Read" | "Glob" | "Grep" | "WebFetch" | "WebSearch" | "read_file"
-            | "list_directory" | "search_files" | "get_file_info" | "git_status" | "git_diff"
-            | "git_log" | "Task" | "TaskCreate" | "TaskUpdate" | "TaskGet" | "TaskList"
-            | "TaskOutput" | "EnterPlanMode" | "ExitPlanMode" | "AskUserQuestion"
-            | "PostToolUse" | "postToolUse" => Risk::Read,
+            "Read" | "Glob" | "Grep" | "WebFetch" | "WebSearch" | "Task" | "TaskCreate"
+            | "TaskUpdate" | "TaskGet" | "TaskList" | "TaskOutput" | "EnterPlanMode"
+            | "ExitPlanMode" | "AskUserQuestion" | "PostToolUse" | "postToolUse" => Risk::Read,
 
-            "Write" | "Edit" | "MultiEdit" | "NotebookEdit" | "write_file" | "create_directory"
-            | "delete_file" | "move_file" | "patch_file" | "git_commit" => Risk::Write,
+            "Write" | "Edit" | "MultiEdit" | "NotebookEdit" => Risk::Write,
 
             _ => Risk::Unknown,
         }
@@ -194,23 +216,7 @@ impl Risk {
 }
 
 pub fn is_vigilo_mcp_tool(name: &str) -> bool {
-    matches!(
-        name,
-        "read_file"
-            | "write_file"
-            | "list_directory"
-            | "create_directory"
-            | "delete_file"
-            | "move_file"
-            | "search_files"
-            | "run_command"
-            | "get_file_info"
-            | "patch_file"
-            | "git_status"
-            | "git_diff"
-            | "git_log"
-            | "git_commit"
-    )
+    VIGILO_TOOLS.iter().any(|(tool, _)| *tool == name)
 }
 
 #[cfg(test)]
