@@ -28,7 +28,10 @@ pub fn load_or_create_key() -> Option<[u8; 32]> {
     }
     match generate_and_save_key() {
         Ok(key) => {
-            eprintln!("[vigilo] auto-generated encryption key → {}", key_file_path().display());
+            eprintln!(
+                "[vigilo] auto-generated encryption key → {}",
+                key_file_path().display()
+            );
             Some(key)
         }
         Err(e) => {

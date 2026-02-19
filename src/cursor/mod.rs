@@ -84,11 +84,11 @@ pub async fn run(since_days: u32) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::cache::CachedTokenEvent;
     use super::credentials::{auth_cookie, percent_encode, Credentials};
     use super::display::{fmt_cost_cents, TokenTotals};
     use super::platform::{is_system_user, needs_local_copy};
+    use super::*;
 
     #[test]
     fn is_system_user_filters_known() {

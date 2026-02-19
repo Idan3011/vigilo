@@ -24,10 +24,16 @@ src/
 ├── hook_helpers.rs    Shared hook utilities (events, transcripts, diffs)
 ├── models.rs          McpEvent, Outcome, Risk, ProjectContext
 ├── ledger.rs          Append-only JSONL writer with 10MB rotation
-├── cursor_usage.rs    Cursor token usage via local DB + cursor.com API
+├── cursor/
+│   ├── mod.rs         Public API, entry points (run, sync)
+│   ├── platform.rs    Platform detection, DB discovery, WSL helpers
+│   ├── credentials.rs DB credential reading, auth cookie
+│   ├── api.rs         HTTP fetch (summary, events, pagination)
+│   ├── cache.rs       CachedTokenEvent, cache I/O, aggregation
+│   └── display.rs     Token totals, print functions, formatting
 ├── setup.rs           Interactive setup wizard
 ├── git.rs             Async git helpers (root, name, branch, commit, dirty)
-└── crypto.rs          AES-256-GCM encryption/decryption
+└── crypto.rs          AES-256-GCM encryption/decryption, auto key generation
 ```
 
 ## Session sync
@@ -42,7 +48,7 @@ When both MCP server and PostToolUse hook are active (standard setup), they prod
 ## Design principles
 
 - **Local only** — no network calls in the MCP server path; `cursor-usage` is opt-in
-- **Non-blocking** — ledger failures log to stderr; tool responses are never delayed
+- **Non-blocking** — ledger failures log to stderr and `~/.vigilo/errors.log`; tool responses are never delayed
 - **Witness, not judge** — records what happened; enforces no policies, blocks nothing
 - **Shape is transparent, content is private** — timing, risk, and git context are always plaintext; file contents are optionally encrypted
 
