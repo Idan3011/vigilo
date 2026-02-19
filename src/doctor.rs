@@ -273,7 +273,7 @@ fn check_cursor_mcp(pass: &mut u32, fail: &mut u32) {
 }
 
 fn check_cursor_db(pass: &mut u32, _fail: &mut u32) {
-    match crate::cursor_usage::resolve_db_path() {
+    match crate::cursor::resolve_db_path() {
         Ok(path) => ok(&format!("cursor DB found ({})", short_path(&path)), pass),
         Err(_) => {
             cprintln!("  {DIM}-{RESET}  cursor DB not found (optional — for cursor-usage)");

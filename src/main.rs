@@ -1,6 +1,6 @@
 mod cli;
 mod crypto;
-mod cursor_usage;
+mod cursor;
 mod doctor;
 mod git;
 mod hook;
@@ -139,9 +139,9 @@ async fn dispatch_cursor_usage(args: &[String]) -> Result<()> {
         None => 30u32,
     };
     if args.iter().any(|a| a == "--sync") {
-        cursor_usage::sync(since).await
+        cursor::sync(since).await
     } else {
-        cursor_usage::run(since).await
+        cursor::run(since).await
     }
 }
 
@@ -175,11 +175,11 @@ fn dispatch_export(args: &[String], ledger_path: &str) -> Result<()> {
 }
 
 async fn auto_sync_cursor_cache() {
-    if !cursor_usage::has_cursor_db() || !cursor_usage::is_cache_stale() {
+    if !cursor::has_cursor_db() || !cursor::is_cache_stale() {
         return;
     }
     eprintln!("[vigilo] syncing cursor token data...");
-    if let Err(e) = cursor_usage::sync(7).await {
+    if let Err(e) = cursor::sync(7).await {
         eprintln!("[vigilo] cursor sync failed: {e}");
     }
 }

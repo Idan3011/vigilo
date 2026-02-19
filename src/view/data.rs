@@ -1,5 +1,5 @@
 use crate::{
-    cursor_usage,
+    cursor,
     models::{McpEvent, Risk},
 };
 use anyhow::Result;
@@ -201,7 +201,7 @@ pub(super) fn load_tail_events(ledger_path: &str, n: usize) -> Result<Vec<McpEve
 
 pub(super) fn cursor_session_tokens(
     events: &[McpEvent],
-) -> Option<cursor_usage::CachedSessionTokens> {
+) -> Option<cursor::CachedSessionTokens> {
     let first = events.first()?;
     if first.server != "cursor" {
         return None;
@@ -211,8 +211,8 @@ pub(super) fn cursor_session_tokens(
     }
 
     let (start_ms, end_ms) = session_time_range_ms(events)?;
-    let cached = cursor_usage::load_cached_tokens_for_range(start_ms, end_ms);
-    cursor_usage::aggregate_cached_tokens(&cached)
+    let cached = cursor::load_cached_tokens_for_range(start_ms, end_ms);
+    cursor::aggregate_cached_tokens(&cached)
 }
 
 fn session_time_range_ms(events: &[McpEvent]) -> Option<(i64, i64)> {

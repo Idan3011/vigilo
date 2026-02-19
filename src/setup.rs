@@ -35,7 +35,7 @@ pub async fn run() -> Result<()> {
 
 async fn sync_cursor_usage() {
     println!("\n      Syncing Cursor token usage...");
-    match crate::cursor_usage::sync(30).await {
+    match crate::cursor::sync(30).await {
         Ok(()) => {}
         Err(e) => eprintln!("      {e}\n      You can retry later with: vigilo cursor-usage"),
     }
@@ -259,7 +259,7 @@ fn ensure_hook_entry(hooks: &mut serde_json::Value, hook_type: &str, command: &s
 
 fn discover_cursor_db() -> Option<String> {
     println!("\n      Locating Cursor database...");
-    match crate::cursor_usage::discover_db() {
+    match crate::cursor::discover_db() {
         Ok(path) => {
             println!("      ✓ {path}");
             println!("      (saved to config — `vigilo cursor-usage` will use this)");
@@ -306,7 +306,7 @@ fn detect_claude() -> bool {
 fn detect_cursor() -> bool {
     crate::models::home_dir().join(".cursor").exists()
         || which("cursor").is_some()
-        || crate::cursor_usage::discover_db().is_ok()
+        || crate::cursor::discover_db().is_ok()
 }
 
 fn which(cmd: &str) -> Option<String> {

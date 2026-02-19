@@ -140,7 +140,7 @@ fn print_event_row(e: &McpEvent, key: Option<&[u8; 32]>, project_root: Option<&s
 
 fn print_session_footer(
     events: &[McpEvent],
-    cursor_tokens: &Option<crate::cursor_usage::CachedSessionTokens>,
+    cursor_tokens: &Option<crate::cursor::CachedSessionTokens>,
 ) {
     let c = super::counts::EventCounts::from_slice(events);
 
@@ -169,7 +169,7 @@ fn print_session_footer(
 
 fn print_footer_tokens(
     events: &[McpEvent],
-    cursor_tokens: &Option<crate::cursor_usage::CachedSessionTokens>,
+    cursor_tokens: &Option<crate::cursor::CachedSessionTokens>,
 ) {
     let sum_in: u64 = events.iter().filter_map(|e| e.input_tokens()).sum();
     let sum_out: u64 = events.iter().filter_map(|e| e.output_tokens()).sum();
@@ -245,7 +245,7 @@ pub fn sessions(ledger_path: &str, args: ViewArgs) -> Result<()> {
 fn print_session_list_row(
     sid: &str,
     events: &[McpEvent],
-    cursor_tokens: &Option<crate::cursor_usage::CachedSessionTokens>,
+    cursor_tokens: &Option<crate::cursor::CachedSessionTokens>,
 ) {
     let Some(first) = events.first() else {
         return;
