@@ -31,13 +31,23 @@ pub async fn run(ledger_path: &str) -> Result<()> {
         return Ok(());
     };
 
+    let encryption_key = crate::crypto::load_or_create_key();
+
     match detect_client(&payload) {
-        HookClient::Cursor => handle_cursor_hook(&payload, ledger_path).await,
-        HookClient::ClaudeCode => handle_claude_hook(&payload, ledger_path).await,
+        HookClient::Cursor => {
+            handle_cursor_hook(&payload, ledger_path, encryption_key.as_ref()).await
+        }
+        HookClient::ClaudeCode => {
+            handle_claude_hook(&payload, ledger_path, encryption_key.as_ref()).await
+        }
     }
 }
 
-async fn handle_claude_hook(payload: &serde_json::Value, ledger_path: &str) -> Result<()> {
+async fn handle_claude_hook(
+    payload: &serde_json::Value,
+    ledger_path: &str,
+    encryption_key: Option<&[u8; 32]>,
+) -> Result<()> {
     let (tool_name, arguments) = parse_claude_tool(payload);
     if tool_name.starts_with("mcp__vigilo__") {
         return Ok(());
@@ -48,9 +58,38 @@ async fn handle_claude_hook(payload: &serde_json::Value, ledger_path: &str) -> R
     let session_id = claude_session_id(payload);
     let diff = compute_edit_diff(&tool_name, &arguments);
 
+    let (enc_arguments, enc_outcome, enc_diff) =
+        crate::crypto::encrypt_for_ledger(encryption_key, &arguments, &outcome, &diff);
+
     let cwd = payload["cwd"].as_str().unwrap_or(".");
     let git_dir = resolve_git_dir(&tool_name, &arguments, cwd);
     let project = build_project(&git_dir).await;
+
+    let event = build_claude_event(
+        payload,
+        tool_name,
+        enc_arguments,
+        enc_outcome,
+        enc_diff,
+        risk,
+        session_id,
+        project,
+    );
+
+    write_hook_event(&event, ledger_path);
+    Ok(())
+}
+
+fn build_claude_event(
+    payload: &serde_json::Value,
+    tool_name: String,
+    arguments: serde_json::Value,
+    outcome: Outcome,
+    diff: Option<String>,
+    risk: Risk,
+    session_id: Uuid,
+    project: crate::models::ProjectContext,
+) -> McpEvent {
     let tag = std::env::var("VIGILO_TAG")
         .ok()
         .or_else(|| project.branch.clone());
@@ -61,7 +100,7 @@ async fn handle_claude_hook(payload: &serde_json::Value, ledger_path: &str) -> R
         .map(|p| read_transcript_meta(p, tool_use_id_str))
         .unwrap_or_default();
 
-    let event = McpEvent {
+    McpEvent {
         id: Uuid::new_v4(),
         timestamp: Utc::now().to_rfc3339(),
         session_id,
@@ -88,10 +127,7 @@ async fn handle_claude_hook(payload: &serde_json::Value, ledger_path: &str) -> R
             tool_use_id: tool_use_id_str.map(|s| s.to_string()),
         },
         ..Default::default()
-    };
-
-    write_hook_event(&event, ledger_path);
-    Ok(())
+    }
 }
 
 fn parse_claude_tool(payload: &serde_json::Value) -> (String, serde_json::Value) {
@@ -147,7 +183,11 @@ fn build_claude_outcome(response: &serde_json::Value) -> Outcome {
     }
 }
 
-async fn handle_cursor_hook(payload: &serde_json::Value, ledger_path: &str) -> Result<()> {
+async fn handle_cursor_hook(
+    payload: &serde_json::Value,
+    ledger_path: &str,
+    encryption_key: Option<&[u8; 32]>,
+) -> Result<()> {
     let hook_event = payload["hook_event_name"].as_str().unwrap_or("PostToolUse");
     if matches!(hook_event, "stop" | "beforeSubmitPrompt") {
         return Ok(());
@@ -166,8 +206,36 @@ async fn handle_cursor_hook(payload: &serde_json::Value, ledger_path: &str) -> R
         return Ok(());
     }
 
+    let outcome: Outcome = Default::default();
+    let (enc_arguments, _, enc_diff) =
+        crate::crypto::encrypt_for_ledger(encryption_key, &arguments, &outcome, &diff);
+
     let git_dir = resolve_git_dir(&tool_name, &arguments, &cwd);
     let project = build_project(&git_dir).await;
+
+    let event = build_cursor_event(
+        payload,
+        tool_name,
+        enc_arguments,
+        enc_diff,
+        risk,
+        session_id,
+        project,
+    );
+
+    write_hook_event(&event, ledger_path);
+    Ok(())
+}
+
+fn build_cursor_event(
+    payload: &serde_json::Value,
+    tool_name: String,
+    arguments: serde_json::Value,
+    diff: Option<String>,
+    risk: Risk,
+    session_id: Uuid,
+    project: crate::models::ProjectContext,
+) -> McpEvent {
     let tag = std::env::var("VIGILO_TAG")
         .ok()
         .or_else(|| project.branch.clone());
@@ -178,7 +246,7 @@ async fn handle_cursor_hook(payload: &serde_json::Value, ledger_path: &str) -> R
         .unwrap_or(0);
     let model = resolve_cursor_model(payload, payload["conversation_id"].as_str().unwrap_or(""));
 
-    let event = McpEvent {
+    McpEvent {
         id: Uuid::new_v4(),
         timestamp: Utc::now().to_rfc3339(),
         session_id,
@@ -203,10 +271,7 @@ async fn handle_cursor_hook(payload: &serde_json::Value, ledger_path: &str) -> R
             generation_id: payload["generation_id"].as_str().map(|s| s.to_string()),
         },
         ..Default::default()
-    };
-
-    write_hook_event(&event, ledger_path);
-    Ok(())
+    }
 }
 
 fn cursor_cwd(payload: &serde_json::Value) -> String {
