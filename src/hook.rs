@@ -58,23 +58,13 @@ async fn handle_claude_hook(
     let session_id = claude_session_id(payload);
     let diff = compute_edit_diff(&tool_name, &arguments);
 
-    let (enc_arguments, enc_outcome, enc_diff) =
-        crate::crypto::encrypt_for_ledger(encryption_key, &arguments, &outcome, &diff);
+    let encrypted = crate::crypto::encrypt_for_ledger(encryption_key, &arguments, &outcome, &diff);
 
     let cwd = payload["cwd"].as_str().unwrap_or(".");
     let git_dir = resolve_git_dir(&tool_name, &arguments, cwd);
     let project = build_project(&git_dir).await;
 
-    let event = build_claude_event(
-        payload,
-        tool_name,
-        enc_arguments,
-        enc_outcome,
-        enc_diff,
-        risk,
-        session_id,
-        project,
-    );
+    let event = build_claude_event(payload, tool_name, encrypted, risk, session_id, project);
 
     write_hook_event(&event, ledger_path);
     Ok(())
@@ -83,13 +73,12 @@ async fn handle_claude_hook(
 fn build_claude_event(
     payload: &serde_json::Value,
     tool_name: String,
-    arguments: serde_json::Value,
-    outcome: Outcome,
-    diff: Option<String>,
+    encrypted: (serde_json::Value, Outcome, Option<String>),
     risk: Risk,
     session_id: Uuid,
     project: crate::models::ProjectContext,
 ) -> McpEvent {
+    let (arguments, outcome, diff) = encrypted;
     let tag = std::env::var("VIGILO_TAG")
         .ok()
         .or_else(|| project.branch.clone());
