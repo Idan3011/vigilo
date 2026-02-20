@@ -147,37 +147,7 @@ fn encrypt_for_ledger(
     outcome: &Outcome,
     diff: &Option<String>,
 ) -> (serde_json::Value, Outcome, Option<String>) {
-    let key = match encryption_key {
-        Some(k) => k,
-        None => return (arguments.clone(), outcome.clone(), diff.clone()),
-    };
-    let enc_args = match crypto::encrypt(key, &arguments.to_string()) {
-        Ok(s) => serde_json::json!(s),
-        Err(e) => {
-            eprintln!("[vigilo] encryption failed for arguments: {e}");
-            arguments.clone()
-        }
-    };
-    let enc_outcome = match outcome {
-        Outcome::Ok { result } => match crypto::encrypt(key, &result.to_string()) {
-            Ok(s) => Outcome::Ok {
-                result: serde_json::json!(s),
-            },
-            Err(e) => {
-                eprintln!("[vigilo] encryption failed for result: {e}");
-                outcome.clone()
-            }
-        },
-        Outcome::Err { .. } => outcome.clone(),
-    };
-    let enc_diff = diff.as_deref().and_then(|d| match crypto::encrypt(key, d) {
-        Ok(s) => Some(s),
-        Err(e) => {
-            eprintln!("[vigilo] encryption failed for diff: {e}");
-            None
-        }
-    });
-    (enc_args, enc_outcome, enc_diff)
+    crypto::encrypt_for_ledger(encryption_key, arguments, outcome, diff)
 }
 
 async fn resolve_project(

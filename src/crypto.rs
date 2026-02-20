@@ -100,6 +100,45 @@ pub fn decrypt(key: &[u8; 32], ciphertext: &str) -> Option<String> {
     String::from_utf8(plaintext).ok()
 }
 
+pub fn encrypt_for_ledger(
+    encryption_key: Option<&[u8; 32]>,
+    arguments: &serde_json::Value,
+    outcome: &crate::models::Outcome,
+    diff: &Option<String>,
+) -> (serde_json::Value, crate::models::Outcome, Option<String>) {
+    let key = match encryption_key {
+        Some(k) => k,
+        None => return (arguments.clone(), outcome.clone(), diff.clone()),
+    };
+    let enc_args = match encrypt(key, &arguments.to_string()) {
+        Ok(s) => serde_json::json!(s),
+        Err(e) => {
+            eprintln!("[vigilo] encryption failed for arguments: {e}");
+            arguments.clone()
+        }
+    };
+    let enc_outcome = match outcome {
+        crate::models::Outcome::Ok { result } => match encrypt(key, &result.to_string()) {
+            Ok(s) => crate::models::Outcome::Ok {
+                result: serde_json::json!(s),
+            },
+            Err(e) => {
+                eprintln!("[vigilo] encryption failed for result: {e}");
+                outcome.clone()
+            }
+        },
+        crate::models::Outcome::Err { .. } => outcome.clone(),
+    };
+    let enc_diff = diff.as_deref().and_then(|d| match encrypt(key, d) {
+        Ok(s) => Some(s),
+        Err(e) => {
+            eprintln!("[vigilo] encryption failed for diff: {e}");
+            None
+        }
+    });
+    (enc_args, enc_outcome, enc_diff)
+}
+
 pub fn is_encrypted(s: &str) -> bool {
     s.starts_with(PREFIX)
 }
