@@ -1,4 +1,7 @@
-# vigilo
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/vigilo-wordmark-dark.svg">
+  <img src="docs/vigilo-wordmark-light.svg" alt="vigilo" width="260">
+</picture>
 
 [![CI](https://github.com/Idan3011/vigilo/actions/workflows/ci.yml/badge.svg)](https://github.com/Idan3011/vigilo/actions/workflows/ci.yml)
 
