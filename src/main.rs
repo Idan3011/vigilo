@@ -1,6 +1,8 @@
 mod cli;
 mod crypto;
 mod cursor;
+#[cfg(feature = "dashboard")]
+mod dashboard;
 mod doctor;
 mod git;
 mod hook;
@@ -91,6 +93,7 @@ async fn dispatch_subcommand(args: &[String], ledger_path: &str) -> Option<Resul
         Some("tail") => Some(dispatch_tail(&args[1..], ledger_path)),
         Some("export") => Some(dispatch_export(&args[1..], ledger_path)),
         Some("prune") => Some(dispatch_prune(&args[1..], ledger_path)),
+        Some("dashboard") => Some(dispatch_dashboard(&args[1..], ledger_path).await),
         Some("doctor") => {
             doctor::run(ledger_path);
             Some(Ok(()))
@@ -175,6 +178,23 @@ fn dispatch_export(args: &[String], ledger_path: &str) -> Result<()> {
     let filtered: Vec<String> = filter_flags(args, &["--format", "--output"]);
     let view_args = parse_view_args(&filtered);
     view::export(ledger_path, &format, &view_args, output.as_deref())
+}
+
+async fn dispatch_dashboard(args: &[String], ledger_path: &str) -> Result<()> {
+    #[cfg(feature = "dashboard")]
+    {
+        let port: u16 = cli::get_flag(args, "--port")
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(7847);
+        dashboard::run(ledger_path.to_string(), port).await
+    }
+    #[cfg(not(feature = "dashboard"))]
+    {
+        let _ = (args, ledger_path);
+        eprintln!("vigilo: dashboard feature not compiled.");
+        eprintln!("Rebuild with: cargo build --features dashboard");
+        std::process::exit(1);
+    }
 }
 
 async fn auto_sync_cursor_cache() {

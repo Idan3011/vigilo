@@ -21,6 +21,7 @@ fn print_usage() {
     println!("  vigilo query    [OPTIONS]       Filter events across all sessions");
     println!("  vigilo export   [OPTIONS]       Export events as CSV or JSON");
     println!("  vigilo cursor-usage [OPTIONS]   Fetch real token usage from cursor.com");
+    println!("  vigilo dashboard [OPTIONS]      Launch web dashboard (default port: 7847)");
     println!("  vigilo prune    [OPTIONS]       Delete old rotated ledger files");
     println!("  vigilo doctor                   Check configuration and dependencies");
     println!("  vigilo setup                    Interactive setup wizard");
@@ -52,6 +53,8 @@ fn print_options() {
     println!("CURSOR-USAGE OPTIONS:");
     println!("  --since-days <n>  Number of days to look back (default: 30)");
     println!("  --sync            Fetch and cache token data without printing\n");
+    println!("DASHBOARD OPTIONS:");
+    println!("  --port <n>        Port to listen on (default: 7847)\n");
     println!("ENVIRONMENT:");
     println!("  VIGILO_LEDGER           Path to ledger file (default: ~/.vigilo/events.jsonl)");
     println!("  VIGILO_ENCRYPTION_KEY   Base64 AES-256 key — encrypts arguments and results\n");
@@ -211,6 +214,7 @@ const SUBCOMMANDS: &[&str] = &[
     "query",
     "export",
     "cursor-usage",
+    "dashboard",
     "prune",
     "doctor",
     "setup",
@@ -285,6 +289,9 @@ _vigilo() {{
                         '--output[Output file]:file:_files' \
                         '--since[From date]:date:' \
                         '--until[To date]:date:'
+                    ;;
+                dashboard)
+                    _arguments '--port[Listen port]:port:'
                     ;;
                 prune)
                     _arguments '--older-than[Days threshold]:days:'

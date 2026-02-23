@@ -9,3 +9,10 @@ target/
 .claude/
 CLAUDE.md
 .cursorrules
+
+# Local runtime data
+.vigilo/
+
+# Dashboard
+dashboard/node_modules/
+dashboard/tsconfig.tsbuildinfo
