@@ -16,8 +16,8 @@ pub(crate) fn ledger_stem(path: &Path) -> &str {
         .unwrap_or("events")
 }
 
-pub fn append_event(event: &impl Serialize, ledger_path: &str) -> Result<()> {
-    let path = Path::new(ledger_path);
+pub fn append_event(event: &impl Serialize, ledger_path: impl AsRef<Path>) -> Result<()> {
+    let path = ledger_path.as_ref();
 
     if let Some(parent) = path.parent() {
         if !parent.exists() {
@@ -46,7 +46,7 @@ pub fn append_event(event: &impl Serialize, ledger_path: &str) -> Result<()> {
         if meta.len() > MAX_SIZE {
             // still holding lock — safe to rotate
             drop(file); // releases lock + handle
-            if let Err(e) = rotate_and_cleanup(&PathBuf::from(ledger_path), MAX_ROTATED) {
+            if let Err(e) = rotate_and_cleanup(&path.to_path_buf(), MAX_ROTATED) {
                 eprintln!("[vigilo] ledger rotation failed: {e}");
             }
         } else {
@@ -105,8 +105,8 @@ fn rotate_and_cleanup(ledger_path: &PathBuf, keep: usize) -> std::io::Result<()>
 
 /// Delete rotated ledger files older than `older_than_days` days.
 /// Returns the number of files removed.
-pub fn prune(ledger_path: &str, older_than_days: u32) -> Result<usize> {
-    let path = Path::new(ledger_path);
+pub fn prune(ledger_path: impl AsRef<Path>, older_than_days: u32) -> Result<usize> {
+    let path = ledger_path.as_ref();
     let parent = path.parent().unwrap_or_else(|| Path::new("."));
     let stem = ledger_stem(path);
     let active_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
@@ -152,7 +152,7 @@ mod tests {
             data: "hello".into(),
         };
 
-        append_event(&event, path.to_str().unwrap()).expect("append should succeed");
+        append_event(&event, &path).expect("append should succeed");
 
         let contents = fs::read_to_string(&path).expect("read file");
         let lines: Vec<&str> = contents.lines().collect();
@@ -170,7 +170,7 @@ mod tests {
             id: "1".into(),
             data: "hello".into(),
         };
-        let result = append_event(&event, dir.path().to_str().unwrap());
+        let result = append_event(&event, dir.path());
         assert!(result.is_err());
     }
 
@@ -187,7 +187,7 @@ mod tests {
                 id: i.to_string(),
                 data: big_data.clone(),
             };
-            append_event(&event, path_str).expect("append should succeed");
+            append_event(&event, Path::new(path_str)).expect("append should succeed");
         }
 
         let active_size = fs::metadata(&path).expect("active file").len();
@@ -231,7 +231,7 @@ mod tests {
         let recent = dir.path().join("events.9999999.jsonl");
         fs::write(&recent, "recent\n").unwrap();
 
-        let removed = prune(active.to_str().unwrap(), 30).unwrap();
+        let removed = prune(&active, 30).unwrap();
         assert_eq!(removed, 1);
         assert!(!old.exists(), "old file should be deleted");
         assert!(recent.exists(), "recent file should remain");
@@ -244,7 +244,7 @@ mod tests {
         let active = dir.path().join("events.jsonl");
         fs::write(&active, "active\n").unwrap();
 
-        let removed = prune(active.to_str().unwrap(), 30).unwrap();
+        let removed = prune(&active, 30).unwrap();
         assert_eq!(removed, 0);
     }
 }

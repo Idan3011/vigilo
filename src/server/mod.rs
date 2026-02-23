@@ -8,13 +8,13 @@ mod schema;
 mod tools;
 
 pub(crate) struct ServerContext {
-    pub ledger_path: String,
+    pub ledger_path: std::path::PathBuf,
     pub session_id: Uuid,
     pub project_root: Option<String>,
     pub project_name: Option<String>,
     pub tag: Option<String>,
     pub timeout_secs: u64,
-    pub encryption_key: Option<[u8; 32]>,
+    pub encryption_key: Option<crate::crypto::EncryptionKey>,
 }
 
 struct SessionCounters {
@@ -25,7 +25,8 @@ struct SessionCounters {
     errors: u64,
 }
 
-pub async fn run(ledger_path: String, session_id: Uuid) -> Result<()> {
+pub async fn run(ledger_path: impl Into<std::path::PathBuf>, session_id: Uuid) -> Result<()> {
+    let ledger_path = ledger_path.into();
     let (project_root, project_name, tag, timeout_secs) = init_session().await;
     let encryption_key = crate::crypto::load_or_create_key();
 
@@ -207,7 +208,7 @@ mod tests {
 
     fn test_ctx(ledger_path: &str) -> ServerContext {
         ServerContext {
-            ledger_path: ledger_path.to_string(),
+            ledger_path: std::path::PathBuf::from(ledger_path),
             session_id: uuid::Uuid::new_v4(),
             project_root: None,
             project_name: None,

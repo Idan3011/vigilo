@@ -8,7 +8,7 @@ use std::fs::File;
 use std::io::{BufRead, BufReader};
 
 #[derive(Default)]
-pub(super) struct LoadFilter<'a> {
+pub(crate) struct LoadFilter<'a> {
     pub since: Option<&'a str>,
     pub until: Option<&'a str>,
     pub session: Option<&'a str>,
@@ -16,7 +16,7 @@ pub(super) struct LoadFilter<'a> {
 }
 
 impl LoadFilter<'_> {
-    pub(super) fn matches_date(&self, timestamp: &str) -> bool {
+    pub(crate) fn matches_date(&self, timestamp: &str) -> bool {
         let date = timestamp.get(..10).unwrap_or("");
         if let Some(since) = self.since {
             if date < since {
@@ -32,14 +32,19 @@ impl LoadFilter<'_> {
     }
 
     fn matches_session(&self, session_id: &str) -> bool {
-        self.session.is_none_or(|pfx| session_id.starts_with(pfx))
+        self.session.is_none_or(|filter| {
+            // Support comma-separated session prefixes for merged sessions
+            filter
+                .split(',')
+                .any(|pfx| session_id.starts_with(pfx.trim()))
+        })
     }
 }
 
 /// Returns (path, rotation_timestamp_ms) for rotated files, sorted oldest first,
 /// with the active ledger file appended last (timestamp = u128::MAX).
-fn all_ledger_files_with_ts(ledger_path: &str) -> Vec<(std::path::PathBuf, u128)> {
-    let path = std::path::Path::new(ledger_path);
+fn all_ledger_files_with_ts(ledger_path: &std::path::Path) -> Vec<(std::path::PathBuf, u128)> {
+    let path: &std::path::Path = ledger_path;
     let parent = path.parent().unwrap_or(std::path::Path::new("."));
     let stem = crate::ledger::ledger_stem(path);
     let active_name = path.file_name().and_then(|s| s.to_str()).unwrap_or("");
@@ -71,8 +76,10 @@ fn all_ledger_files_with_ts(ledger_path: &str) -> Vec<(std::path::PathBuf, u128)
     files
 }
 
-pub(super) fn all_ledger_files(ledger_path: &str) -> Vec<std::path::PathBuf> {
-    all_ledger_files_with_ts(ledger_path)
+pub(crate) fn all_ledger_files(
+    ledger_path: impl AsRef<std::path::Path>,
+) -> Vec<std::path::PathBuf> {
+    all_ledger_files_with_ts(ledger_path.as_ref())
         .into_iter()
         .map(|(p, _)| p)
         .collect()
@@ -85,11 +92,11 @@ fn date_to_epoch_ms(date: &str) -> Option<u128> {
     Some(ts as u128)
 }
 
-pub(super) fn load_sessions(
-    ledger_path: &str,
+pub(crate) fn load_sessions(
+    ledger_path: impl AsRef<std::path::Path>,
     filter: &LoadFilter,
 ) -> Result<Vec<(String, Vec<McpEvent>)>> {
-    let files = all_ledger_files_with_ts(ledger_path);
+    let files = all_ledger_files_with_ts(ledger_path.as_ref());
     let any_exists = files.iter().any(|(f, _)| f.exists());
     if !any_exists {
         return Ok(Vec::new());
@@ -160,8 +167,11 @@ pub(super) fn load_sessions(
 
 /// Load the last `n` events from the ledger without grouping by session.
 /// Reads from newest files first and stops early.
-pub(super) fn load_tail_events(ledger_path: &str, n: usize) -> Result<Vec<McpEvent>> {
-    let files = all_ledger_files(ledger_path);
+pub(crate) fn load_tail_events(
+    ledger_path: impl AsRef<std::path::Path>,
+    n: usize,
+) -> Result<Vec<McpEvent>> {
+    let files = all_ledger_files(ledger_path.as_ref());
     if !files.iter().any(|f| f.exists()) {
         return Ok(Vec::new());
     }
@@ -199,7 +209,7 @@ pub(super) fn load_tail_events(ledger_path: &str, n: usize) -> Result<Vec<McpEve
     Ok(events)
 }
 
-pub(super) fn cursor_session_tokens(events: &[McpEvent]) -> Option<cursor::CachedSessionTokens> {
+pub(crate) fn cursor_session_tokens(events: &[McpEvent]) -> Option<cursor::CachedSessionTokens> {
     let first = events.first()?;
     if first.server != "cursor" {
         return None;
@@ -277,7 +287,7 @@ mod tests {
             .collect();
         write_events(path, &events);
 
-        let tail = load_tail_events(path, 3).unwrap();
+        let tail = load_tail_events(std::path::Path::new(path), 3).unwrap();
         assert_eq!(tail.len(), 3);
         assert!(tail[0].timestamp.contains("10:07"));
         assert!(tail[2].timestamp.contains("10:09"));
@@ -295,7 +305,7 @@ mod tests {
             &[make_event(sid, "read_file", "2026-02-19T10:00:00Z")],
         );
 
-        let tail = load_tail_events(path, 50).unwrap();
+        let tail = load_tail_events(std::path::Path::new(path), 50).unwrap();
         assert_eq!(tail.len(), 1);
     }
 
@@ -321,7 +331,7 @@ mod tests {
             last: Some(2),
             ..Default::default()
         };
-        let sessions = load_sessions(path, &filter).unwrap();
+        let sessions = load_sessions(std::path::Path::new(path), &filter).unwrap();
         assert_eq!(sessions.len(), 2);
         // Should be the two most recent sessions
         let sids: Vec<Uuid> = sessions.iter().map(|(_, e)| e[0].session_id).collect();
@@ -348,7 +358,7 @@ mod tests {
             since: Some("2026-02-19"),
             ..Default::default()
         };
-        let sessions = load_sessions(path, &filter).unwrap();
+        let sessions = load_sessions(std::path::Path::new(path), &filter).unwrap();
         let total_events: usize = sessions.iter().map(|(_, e)| e.len()).sum();
         assert_eq!(total_events, 1);
     }
@@ -360,7 +370,7 @@ mod tests {
         std::fs::write(dir.path().join("events.100.jsonl"), "").unwrap();
         std::fs::write(dir.path().join("events.200.jsonl"), "").unwrap();
 
-        let files = all_ledger_files(dir.path().join("events.jsonl").to_str().unwrap());
+        let files = all_ledger_files(&dir.path().join("events.jsonl"));
         assert_eq!(files.len(), 3);
         // Active file should be last
         assert!(files.last().unwrap().ends_with("events.jsonl"));

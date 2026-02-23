@@ -55,7 +55,7 @@ pub fn query(
     Ok(())
 }
 
-fn print_query_row(e: &McpEvent, key: Option<&[u8; 32]>) {
+fn print_query_row(e: &McpEvent, key: Option<&crate::crypto::EncryptionKey>) {
     let is_error = matches!(e.outcome, Outcome::Err { .. });
     let badge = client_badge(&e.server);
     let date_time = e.timestamp.get(5..19).unwrap_or("??-?? ??:??:??");
@@ -104,7 +104,7 @@ pub fn diff(ledger_path: &str, args: &ViewArgs) -> Result<()> {
     Ok(())
 }
 
-fn print_diff_session(sid: &str, events: &[McpEvent], key: Option<&[u8; 32]>) {
+fn print_diff_session(sid: &str, events: &[McpEvent], key: Option<&crate::crypto::EncryptionKey>) {
     let edits: Vec<&McpEvent> = events.iter().filter(|e| e.diff.is_some()).collect();
     if edits.is_empty() {
         return;
@@ -218,7 +218,11 @@ fn print_diff_edit(e: &McpEvent) {
     }
 }
 
-fn extract_file_path(e: &McpEvent, key: Option<&[u8; 32]>, project_root: Option<&str>) -> String {
+fn extract_file_path(
+    e: &McpEvent,
+    key: Option<&crate::crypto::EncryptionKey>,
+    project_root: Option<&str>,
+) -> String {
     let raw = e
         .arguments
         .get("file_path")
@@ -422,7 +426,7 @@ async fn wait_for_ledger(ledger_path: &str) -> File {
     }
 }
 
-fn print_watch_event(e: &McpEvent, key: Option<&[u8; 32]>) {
+fn print_watch_event(e: &McpEvent, key: Option<&crate::crypto::EncryptionKey>) {
     let is_error = matches!(e.outcome, Outcome::Err { .. });
     let badge = client_badge(&e.server);
     let time = e.timestamp.get(11..19).unwrap_or(&e.timestamp);

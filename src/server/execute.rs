@@ -24,31 +24,36 @@ pub(super) async fn on_tool_call(
     let (outcome, response) = build_response(msg, exec.0);
     super::log_event(&tool, risk, duration_us, is_error);
 
-    let (ledger_arguments, ledger_outcome, ledger_diff) =
-        encrypt_for_ledger(ctx.encryption_key.as_ref(), &arguments, &outcome, &diff);
-    let project = resolve_project(&arguments, &ctx.project_root, &ctx.project_name).await;
+    match encrypt_for_ledger(ctx.encryption_key.as_ref(), &arguments, &outcome, &diff) {
+        Ok((ledger_arguments, ledger_outcome, ledger_diff)) => {
+            let project = resolve_project(&arguments, &ctx.project_root, &ctx.project_name).await;
 
-    let event = McpEvent {
-        id: Uuid::new_v4(),
-        timestamp: Utc::now().to_rfc3339(),
-        session_id: ctx.session_id,
-        server: "vigilo".to_string(),
-        tool: tool.to_string(),
-        arguments: ledger_arguments,
-        outcome: ledger_outcome,
-        duration_us,
-        risk,
-        project,
-        tag: ctx.tag.clone(),
-        diff: ledger_diff,
-        timed_out,
-        ..Default::default()
-    };
+            let event = McpEvent {
+                id: Uuid::new_v4(),
+                timestamp: Utc::now().to_rfc3339(),
+                session_id: ctx.session_id,
+                server: "vigilo".to_string(),
+                tool: tool.to_string(),
+                arguments: ledger_arguments,
+                outcome: ledger_outcome,
+                duration_us,
+                risk,
+                project,
+                tag: ctx.tag.clone(),
+                diff: ledger_diff,
+                timed_out,
+                ..Default::default()
+            };
 
-    if let Err(e) = ledger::append_event(&event, &ctx.ledger_path) {
-        let msg = format!("[vigilo] ledger error: {e}");
-        eprintln!("{msg}");
-        crate::hook_helpers::log_error(&msg);
+            if let Err(e) = ledger::append_event(&event, &ctx.ledger_path) {
+                let msg = format!("[vigilo] ledger error: {e}");
+                eprintln!("{msg}");
+                crate::hook_helpers::log_error(&msg);
+            }
+        }
+        Err(e) => {
+            eprintln!("[vigilo] encryption failed, skipping ledger write: {e}");
+        }
     }
 
     response
@@ -142,11 +147,11 @@ fn build_response(
 }
 
 fn encrypt_for_ledger(
-    encryption_key: Option<&[u8; 32]>,
+    encryption_key: Option<&crypto::EncryptionKey>,
     arguments: &serde_json::Value,
     outcome: &Outcome,
     diff: &Option<String>,
-) -> (serde_json::Value, Outcome, Option<String>) {
+) -> Result<(serde_json::Value, Outcome, Option<String>), aes_gcm::Error> {
     crypto::encrypt_for_ledger(encryption_key, arguments, outcome, diff)
 }
 

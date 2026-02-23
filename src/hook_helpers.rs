@@ -159,8 +159,20 @@ pub fn read_transcript_meta(transcript_path: &str, tool_use_id: Option<&str>) ->
 
     let meta = scan_transcript_usage(&mut file, size);
 
-    if let Some(id) = tool_use_id {
-        let duration = compute_tool_duration(&mut file, size, id);
+    // Use provided tool_use_id, or fall back to finding the last tool_result
+    // in the transcript (workaround for Claude Code not sending tool_use_id
+    // in PostToolUse hook payload — see github.com/anthropics/claude-code/issues/13241).
+    let owned_id: Option<String>;
+    let effective_id = match tool_use_id {
+        Some(id) => Some(id),
+        None => {
+            owned_id = find_last_tool_use_id(&mut file, size);
+            owned_id.as_deref()
+        }
+    };
+
+    if let Some(id) = effective_id {
+        let duration = compute_tool_duration(transcript_path, id);
         return TranscriptMeta {
             duration_us: duration,
             ..meta
@@ -170,23 +182,30 @@ pub fn read_transcript_meta(transcript_path: &str, tool_use_id: Option<&str>) ->
     meta
 }
 
-/// Check that the first parseable line has the expected transcript structure.
-/// Returns false (with a stderr warning) if the format looks foreign.
+/// Check that the transcript contains the expected Claude Code structure.
+/// Scans up to 20 lines for any line with both "type" and "message" fields.
+/// Lines with "type" but no "message" (e.g. snapshot lines) are skipped.
 fn check_transcript_format(file: &mut std::fs::File, size: u64) -> bool {
     use std::io::{BufRead, Seek, SeekFrom};
 
     let _ = file.seek(SeekFrom::Start(0));
     let reader = std::io::BufReader::new(&mut *file);
 
-    for line in reader.lines().take(10).map_while(Result::ok) {
+    let mut found_json = false;
+    for line in reader.lines().take(20).map_while(Result::ok) {
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
         };
+        found_json = true;
         // A valid Claude Code transcript line has "type" and "message" fields.
         if v.get("type").and_then(|t| t.as_str()).is_some() && v.get("message").is_some() {
             return true;
         }
-        // First parseable JSON line doesn't match expected shape.
+        // Lines with "type" but no "message" (snapshot/progress lines) — keep scanning.
+        if v.get("type").is_some() {
+            continue;
+        }
+        // JSON line without even "type" — foreign format.
         eprintln!(
             "[vigilo] warning: transcript format may have changed (size={size}, \
              keys: {:?}) — token/duration data may be missing",
@@ -194,7 +213,11 @@ fn check_transcript_format(file: &mut std::fs::File, size: u64) -> bool {
         );
         return false;
     }
-    // No parseable JSON lines at all — could be empty or binary.
+    if found_json {
+        // All lines had "type" but none had "message" — might be a very short snapshot-only transcript.
+        // Still allow scanning since the tail might have assistant messages.
+        return true;
+    }
     false
 }
 
@@ -244,13 +267,64 @@ fn scan_transcript_usage(file: &mut std::fs::File, size: u64) -> TranscriptMeta 
     meta
 }
 
-fn compute_tool_duration(file: &mut std::fs::File, size: u64, id: &str) -> Option<u64> {
+/// Scan the transcript tail for the last `tool_result` entry and return its `tool_use_id`.
+/// The PostToolUse hook fires right after the tool result is written, so the last
+/// tool_result in the transcript corresponds to the current hook invocation.
+fn find_last_tool_use_id(file: &mut std::fs::File, size: u64) -> Option<String> {
     use std::io::{BufRead, Seek, SeekFrom};
 
+    let tail_start = size.saturating_sub(TRANSCRIPT_DURATION_TAIL);
+    file.seek(SeekFrom::Start(tail_start)).ok()?;
+    let mut reader = std::io::BufReader::new(&mut *file);
+    if tail_start > 0 {
+        let mut skip = String::new();
+        let _ = reader.read_line(&mut skip);
+    }
+
+    let mut last_id: Option<String> = None;
+    for line in reader.lines().map_while(Result::ok) {
+        let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
+            continue;
+        };
+        if v["type"].as_str() != Some("user") {
+            continue;
+        }
+        if let Some(arr) = v["message"]["content"].as_array() {
+            for item in arr {
+                if item["type"] == "tool_result" {
+                    if let Some(id) = item["tool_use_id"].as_str() {
+                        last_id = Some(id.to_string());
+                    }
+                }
+            }
+        }
+    }
+    last_id
+}
+
+fn compute_tool_duration(path: &str, id: &str) -> Option<u64> {
+    // Try once, and if invoke_ts not found (transcript not yet flushed for fast
+    // tools like Read/Edit), wait briefly and retry with a fresh file handle.
+    if let Some(d) = scan_for_duration(path, id) {
+        return Some(d);
+    }
+    // For fast tools (Read/Edit), the transcript line may not be flushed yet.
+    // Retry after a delay to let Claude Code's I/O buffer flush.
+    // Only reaches here when the first scan fails (fast tools), so slow
+    // tools like Bash that take seconds are not affected.
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    scan_for_duration(path, id)
+}
+
+fn scan_for_duration(path: &str, id: &str) -> Option<u64> {
+    use std::io::{BufRead, Seek, SeekFrom};
+
+    let mut file = std::fs::File::open(path).ok()?;
+    let size = file.metadata().map(|m| m.len()).unwrap_or(0);
     let id_bytes = id.as_bytes();
     let read_from = size.saturating_sub(TRANSCRIPT_DURATION_TAIL);
     file.seek(SeekFrom::Start(read_from)).ok()?;
-    let mut reader = std::io::BufReader::new(&mut *file);
+    let mut reader = std::io::BufReader::new(&mut file);
     if read_from > 0 {
         let mut skip = String::new();
         let _ = reader.read_line(&mut skip);
@@ -270,7 +344,9 @@ fn compute_tool_duration(file: &mut std::fs::File, size: u64, id: &str) -> Optio
         let Ok(v) = serde_json::from_str::<serde_json::Value>(&line) else {
             continue;
         };
-        let ts = parse_timestamp_micros(&v)?;
+        let Some(ts) = parse_timestamp_micros(&v) else {
+            continue;
+        };
         match v["type"].as_str() {
             Some("assistant") => {
                 if has_tool_use_id(&v["message"]["content"], id) {
@@ -286,7 +362,9 @@ fn compute_tool_duration(file: &mut std::fs::File, size: u64, id: &str) -> Optio
         }
     }
 
-    let diff_us = result_ts? - invoke_ts?;
+    let end_ts = result_ts.unwrap_or_else(|| chrono::Utc::now().timestamp_micros());
+    let start_ts = invoke_ts?;
+    let diff_us = end_ts - start_ts;
     if diff_us > 0 {
         Some(diff_us as u64)
     } else {
@@ -514,6 +592,31 @@ mod tests {
     }
 
     #[test]
+    fn check_transcript_format_accepts_snapshot_then_message() {
+        use std::io::Write;
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        // First line: snapshot (type but no message)
+        let snapshot = serde_json::json!({
+            "type": "summary",
+            "messageId": "abc",
+            "snapshot": true,
+            "isSnapshotUpdate": true
+        });
+        writeln!(tmp, "{}", serde_json::to_string(&snapshot).unwrap()).unwrap();
+        // Second line: valid message
+        let msg = serde_json::json!({
+            "type": "assistant",
+            "message": { "model": "test" }
+        });
+        writeln!(tmp, "{}", serde_json::to_string(&msg).unwrap()).unwrap();
+        tmp.flush().unwrap();
+
+        let mut file = std::fs::File::open(tmp.path()).unwrap();
+        let size = file.metadata().unwrap().len();
+        assert!(check_transcript_format(&mut file, size));
+    }
+
+    #[test]
     fn check_transcript_format_rejects_foreign() {
         use std::io::Write;
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
@@ -612,16 +715,142 @@ mod tests {
                 ]
             }
         });
+        // Include progress lines with parentToolUseID (no timestamp) to test
+        // that they are skipped rather than aborting the scan
+        let progress = serde_json::json!({
+            "type": "progress",
+            "parentToolUseID": "tu_abc",
+            "data": { "content": "working..." }
+        });
         writeln!(tmp, "{}", serde_json::to_string(&invoke).unwrap()).unwrap();
+        writeln!(tmp, "{}", serde_json::to_string(&progress).unwrap()).unwrap();
+        writeln!(tmp, "{}", serde_json::to_string(&progress).unwrap()).unwrap();
         writeln!(tmp, "{}", serde_json::to_string(&result).unwrap()).unwrap();
+        tmp.flush().unwrap();
+
+        let path = tmp.path().to_str().unwrap();
+        let duration = scan_for_duration(path, "tu_abc");
+
+        assert!(duration.is_some());
+        assert_eq!(duration.unwrap(), 1_500_000);
+    }
+
+    #[test]
+    fn compute_tool_duration_uses_now_when_no_result() {
+        use std::io::Write;
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+
+        // Only the tool_use, no tool_result (simulates PostToolUse hook timing)
+        let invoke = serde_json::json!({
+            "type": "assistant",
+            "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Micros, true),
+            "message": {
+                "content": [
+                    { "type": "tool_use", "id": "tu_now", "name": "Read" }
+                ]
+            }
+        });
+        writeln!(tmp, "{}", serde_json::to_string(&invoke).unwrap()).unwrap();
+        tmp.flush().unwrap();
+
+        let path = tmp.path().to_str().unwrap();
+        let duration = scan_for_duration(path, "tu_now");
+
+        // Should return Some duration (now - invoke_ts), which is small but > 0
+        assert!(duration.is_some());
+        // Should be less than 5 seconds (test overhead)
+        assert!(duration.unwrap() < 5_000_000);
+    }
+
+    #[test]
+    fn find_last_tool_use_id_from_transcript() {
+        use std::io::Write;
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+
+        let invoke = serde_json::json!({
+            "type": "assistant",
+            "timestamp": "2026-02-18T12:00:00.000000Z",
+            "message": {
+                "content": [
+                    { "type": "tool_use", "id": "toolu_first", "name": "Read" }
+                ]
+            }
+        });
+        let result1 = serde_json::json!({
+            "type": "user",
+            "timestamp": "2026-02-18T12:00:01.000000Z",
+            "message": {
+                "content": [
+                    { "type": "tool_result", "tool_use_id": "toolu_first", "content": "ok" }
+                ]
+            }
+        });
+        let invoke2 = serde_json::json!({
+            "type": "assistant",
+            "timestamp": "2026-02-18T12:00:02.000000Z",
+            "message": {
+                "content": [
+                    { "type": "tool_use", "id": "toolu_second", "name": "Edit" }
+                ]
+            }
+        });
+        let result2 = serde_json::json!({
+            "type": "user",
+            "timestamp": "2026-02-18T12:00:03.000000Z",
+            "message": {
+                "content": [
+                    { "type": "tool_result", "tool_use_id": "toolu_second", "content": "ok" }
+                ]
+            }
+        });
+        writeln!(tmp, "{}", serde_json::to_string(&invoke).unwrap()).unwrap();
+        writeln!(tmp, "{}", serde_json::to_string(&result1).unwrap()).unwrap();
+        writeln!(tmp, "{}", serde_json::to_string(&invoke2).unwrap()).unwrap();
+        writeln!(tmp, "{}", serde_json::to_string(&result2).unwrap()).unwrap();
         tmp.flush().unwrap();
 
         let mut file = std::fs::File::open(tmp.path()).unwrap();
         let size = file.metadata().unwrap().len();
-        let duration = compute_tool_duration(&mut file, size, "tu_abc");
+        let id = find_last_tool_use_id(&mut file, size);
 
-        assert!(duration.is_some());
-        assert_eq!(duration.unwrap(), 1_500_000);
+        assert_eq!(id.as_deref(), Some("toolu_second"));
+    }
+
+    #[test]
+    fn read_transcript_meta_computes_duration_without_tool_use_id() {
+        use std::io::Write;
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+
+        // assistant message with model/usage + tool_use
+        let invoke = serde_json::json!({
+            "type": "assistant",
+            "timestamp": "2026-02-18T12:00:00.000000Z",
+            "message": {
+                "model": "claude-opus-4-20250514",
+                "usage": { "input_tokens": 100, "output_tokens": 50 },
+                "content": [
+                    { "type": "tool_use", "id": "toolu_xyz", "name": "Read" }
+                ]
+            }
+        });
+        let result = serde_json::json!({
+            "type": "user",
+            "timestamp": "2026-02-18T12:00:02.000000Z",
+            "message": {
+                "content": [
+                    { "type": "tool_result", "tool_use_id": "toolu_xyz", "content": "ok" }
+                ]
+            }
+        });
+        writeln!(tmp, "{}", serde_json::to_string(&invoke).unwrap()).unwrap();
+        writeln!(tmp, "{}", serde_json::to_string(&result).unwrap()).unwrap();
+        tmp.flush().unwrap();
+
+        let path = tmp.path().to_str().unwrap();
+        let meta = read_transcript_meta(path, None);
+
+        assert_eq!(meta.model.as_deref(), Some("claude-opus-4-20250514"));
+        assert_eq!(meta.duration_us, Some(2_000_000));
     }
 
     #[test]

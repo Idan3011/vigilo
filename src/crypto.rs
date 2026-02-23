@@ -4,8 +4,23 @@ use aes_gcm::{
     Aes256Gcm, Nonce,
 };
 use base64::{engine::general_purpose::STANDARD, Engine};
+use zeroize::{Zeroize, ZeroizeOnDrop};
 
 const PREFIX: &str = "enc:v1:";
+
+/// AES-256 key wrapper that zeroizes memory on drop.
+#[derive(Zeroize, ZeroizeOnDrop)]
+pub struct EncryptionKey([u8; 32]);
+
+impl EncryptionKey {
+    pub fn new(bytes: [u8; 32]) -> Self {
+        Self(bytes)
+    }
+
+    pub fn as_bytes(&self) -> &[u8; 32] {
+        &self.0
+    }
+}
 
 /// Returns the path to the on-disk key file: `~/.vigilo/encryption.key`
 pub fn key_file_path() -> std::path::PathBuf {
@@ -13,7 +28,7 @@ pub fn key_file_path() -> std::path::PathBuf {
 }
 
 /// Try loading key from: env var → key file → None.
-pub fn load_key() -> Option<[u8; 32]> {
+pub fn load_key() -> Option<EncryptionKey> {
     if let Some(key) = load_key_from_env() {
         return Some(key);
     }
@@ -22,7 +37,7 @@ pub fn load_key() -> Option<[u8; 32]> {
 
 /// Load key, or auto-generate and persist one if none exists.
 /// Used by the MCP server to ensure encryption is always active.
-pub fn load_or_create_key() -> Option<[u8; 32]> {
+pub fn load_or_create_key() -> Option<EncryptionKey> {
     if let Some(key) = load_key() {
         return Some(key);
     }
@@ -42,22 +57,24 @@ pub fn load_or_create_key() -> Option<[u8; 32]> {
     }
 }
 
-fn load_key_from_env() -> Option<[u8; 32]> {
+fn load_key_from_env() -> Option<EncryptionKey> {
     let raw = std::env::var("VIGILO_ENCRYPTION_KEY").ok()?;
     let bytes = STANDARD.decode(raw.trim()).ok()?;
-    bytes.try_into().ok()
+    let arr: [u8; 32] = bytes.try_into().ok()?;
+    Some(EncryptionKey::new(arr))
 }
 
 /// Load key from `~/.vigilo/encryption.key`.
-pub fn load_key_from_file() -> Option<[u8; 32]> {
+pub fn load_key_from_file() -> Option<EncryptionKey> {
     let path = key_file_path();
     let raw = std::fs::read_to_string(&path).ok()?;
     let bytes = STANDARD.decode(raw.trim()).ok()?;
-    bytes.try_into().ok()
+    let arr: [u8; 32] = bytes.try_into().ok()?;
+    Some(EncryptionKey::new(arr))
 }
 
 /// Generate a new AES-256 key, save it to `~/.vigilo/encryption.key` with mode 600.
-pub fn generate_and_save_key() -> std::io::Result<[u8; 32]> {
+pub fn generate_and_save_key() -> std::io::Result<EncryptionKey> {
     let mut key = [0u8; 32];
     OsRng.fill_bytes(&mut key);
     let b64 = STANDARD.encode(key);
@@ -74,11 +91,11 @@ pub fn generate_and_save_key() -> std::io::Result<[u8; 32]> {
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
     }
 
-    Ok(key)
+    Ok(EncryptionKey::new(key))
 }
 
-pub fn encrypt(key: &[u8; 32], plaintext: &str) -> Result<String, aes_gcm::Error> {
-    let cipher = Aes256Gcm::new(key.into());
+pub fn encrypt(key: &EncryptionKey, plaintext: &str) -> Result<String, aes_gcm::Error> {
+    let cipher = Aes256Gcm::new(key.as_bytes().into());
     let mut nonce_bytes = [0u8; 12];
     OsRng.fill_bytes(&mut nonce_bytes);
     let nonce = Nonce::from_slice(&nonce_bytes);
@@ -88,55 +105,40 @@ pub fn encrypt(key: &[u8; 32], plaintext: &str) -> Result<String, aes_gcm::Error
     Ok(format!("{PREFIX}{}", STANDARD.encode(payload)))
 }
 
-pub fn decrypt(key: &[u8; 32], ciphertext: &str) -> Option<String> {
+pub fn decrypt(key: &EncryptionKey, ciphertext: &str) -> Option<String> {
     let b64 = ciphertext.strip_prefix(PREFIX)?;
     let payload = STANDARD.decode(b64).ok()?;
     if payload.len() < 12 {
         return None;
     }
     let (nonce_bytes, ct) = payload.split_at(12);
-    let cipher = Aes256Gcm::new(key.into());
+    let cipher = Aes256Gcm::new(key.as_bytes().into());
     let plaintext = cipher.decrypt(Nonce::from_slice(nonce_bytes), ct).ok()?;
     String::from_utf8(plaintext).ok()
 }
 
 pub fn encrypt_for_ledger(
-    encryption_key: Option<&[u8; 32]>,
+    encryption_key: Option<&EncryptionKey>,
     arguments: &serde_json::Value,
     outcome: &crate::models::Outcome,
     diff: &Option<String>,
-) -> (serde_json::Value, crate::models::Outcome, Option<String>) {
+) -> Result<(serde_json::Value, crate::models::Outcome, Option<String>), aes_gcm::Error> {
     let key = match encryption_key {
         Some(k) => k,
-        None => return (arguments.clone(), outcome.clone(), diff.clone()),
+        None => return Ok((arguments.clone(), outcome.clone(), diff.clone())),
     };
-    let enc_args = match encrypt(key, &arguments.to_string()) {
-        Ok(s) => serde_json::json!(s),
-        Err(e) => {
-            eprintln!("[vigilo] encryption failed for arguments: {e}");
-            arguments.clone()
-        }
-    };
+    let enc_args = serde_json::json!(encrypt(key, &arguments.to_string())?);
     let enc_outcome = match outcome {
-        crate::models::Outcome::Ok { result } => match encrypt(key, &result.to_string()) {
-            Ok(s) => crate::models::Outcome::Ok {
-                result: serde_json::json!(s),
-            },
-            Err(e) => {
-                eprintln!("[vigilo] encryption failed for result: {e}");
-                outcome.clone()
-            }
+        crate::models::Outcome::Ok { result } => crate::models::Outcome::Ok {
+            result: serde_json::json!(encrypt(key, &result.to_string())?),
         },
         crate::models::Outcome::Err { .. } => outcome.clone(),
     };
-    let enc_diff = diff.as_deref().and_then(|d| match encrypt(key, d) {
-        Ok(s) => Some(s),
-        Err(e) => {
-            eprintln!("[vigilo] encryption failed for diff: {e}");
-            None
-        }
-    });
-    (enc_args, enc_outcome, enc_diff)
+    let enc_diff = match diff.as_deref() {
+        Some(d) => Some(encrypt(key, d)?),
+        None => None,
+    };
+    Ok((enc_args, enc_outcome, enc_diff))
 }
 
 pub fn is_encrypted(s: &str) -> bool {
@@ -153,8 +155,8 @@ pub fn generate_key_b64() -> String {
 mod tests {
     use super::*;
 
-    fn test_key() -> [u8; 32] {
-        [42u8; 32]
+    fn test_key() -> EncryptionKey {
+        EncryptionKey::new([42u8; 32])
     }
 
     #[test]
@@ -169,7 +171,7 @@ mod tests {
     fn wrong_key_returns_none() {
         let key = test_key();
         let ct = encrypt(&key, "secret").unwrap();
-        let wrong_key = [0u8; 32];
+        let wrong_key = EncryptionKey::new([0u8; 32]);
         assert!(decrypt(&wrong_key, &ct).is_none());
     }
 
@@ -233,22 +235,18 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let key_path = dir.path().join(".vigilo").join("encryption.key");
 
-        // Directly test the key generation by setting HOME and immediately
-        // capturing the expected path (avoid race with parallel tests)
         std::env::set_var("HOME", dir.path().to_str().unwrap());
         let key = generate_and_save_key().unwrap();
         std::env::remove_var("HOME");
 
-        assert_eq!(key.len(), 32);
+        assert_eq!(key.as_bytes().len(), 32);
         assert!(key_path.exists(), "key file should exist at {key_path:?}");
 
-        // Verify the file content round-trips
         let raw = std::fs::read_to_string(&key_path).unwrap();
         let bytes = STANDARD.decode(raw.trim()).unwrap();
         let loaded: [u8; 32] = bytes.try_into().unwrap();
-        assert_eq!(key, loaded);
+        assert_eq!(*key.as_bytes(), loaded);
 
-        // Verify file permissions on unix
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -286,15 +284,14 @@ mod tests {
         std::env::set_var("HOME", dir.path().to_str().unwrap());
 
         let key = load_or_create_key().unwrap();
-        assert_eq!(key.len(), 32);
+        assert_eq!(key.as_bytes().len(), 32);
 
-        // Verify the file was created and can be loaded directly
         let key_path = dir.path().join(".vigilo").join("encryption.key");
         assert!(key_path.exists());
         let raw = std::fs::read_to_string(&key_path).unwrap();
         let bytes = STANDARD.decode(raw.trim()).unwrap();
         let loaded: [u8; 32] = bytes.try_into().unwrap();
-        assert_eq!(key, loaded);
+        assert_eq!(*key.as_bytes(), loaded);
 
         std::env::remove_var("HOME");
     }

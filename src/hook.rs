@@ -46,7 +46,7 @@ pub async fn run(ledger_path: &str) -> Result<()> {
 async fn handle_claude_hook(
     payload: &serde_json::Value,
     ledger_path: &str,
-    encryption_key: Option<&[u8; 32]>,
+    encryption_key: Option<&crate::crypto::EncryptionKey>,
 ) -> Result<()> {
     let (tool_name, arguments) = parse_claude_tool(payload);
     if tool_name.starts_with("mcp__vigilo__") {
@@ -58,7 +58,14 @@ async fn handle_claude_hook(
     let session_id = claude_session_id(payload);
     let diff = compute_edit_diff(&tool_name, &arguments);
 
-    let encrypted = crate::crypto::encrypt_for_ledger(encryption_key, &arguments, &outcome, &diff);
+    let encrypted =
+        match crate::crypto::encrypt_for_ledger(encryption_key, &arguments, &outcome, &diff) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[vigilo] encryption failed, skipping hook event: {e}");
+                return Ok(());
+            }
+        };
 
     let cwd = payload["cwd"].as_str().unwrap_or(".");
     let git_dir = resolve_git_dir(&tool_name, &arguments, cwd);
@@ -137,9 +144,12 @@ fn claude_session_id(payload: &serde_json::Value) -> Uuid {
     if let Some(id) = read_mcp_session_id() {
         return id;
     }
-    payload["transcript_path"]
+    // Prefer session_id over transcript_path: transcript_path changes on
+    // context compression (new transcript file), while session_id stays
+    // stable for the entire Claude Code conversation.
+    payload["session_id"]
         .as_str()
-        .or_else(|| payload["session_id"].as_str())
+        .or_else(|| payload["transcript_path"].as_str())
         .map(stable_uuid)
         .unwrap_or_else(Uuid::new_v4)
 }
@@ -175,7 +185,7 @@ fn build_claude_outcome(response: &serde_json::Value) -> Outcome {
 async fn handle_cursor_hook(
     payload: &serde_json::Value,
     ledger_path: &str,
-    encryption_key: Option<&[u8; 32]>,
+    encryption_key: Option<&crate::crypto::EncryptionKey>,
 ) -> Result<()> {
     let hook_event = payload["hook_event_name"].as_str().unwrap_or("PostToolUse");
     if matches!(hook_event, "stop" | "beforeSubmitPrompt") {
@@ -197,7 +207,13 @@ async fn handle_cursor_hook(
 
     let outcome: Outcome = Default::default();
     let (enc_arguments, _, enc_diff) =
-        crate::crypto::encrypt_for_ledger(encryption_key, &arguments, &outcome, &diff);
+        match crate::crypto::encrypt_for_ledger(encryption_key, &arguments, &outcome, &diff) {
+            Ok(v) => v,
+            Err(e) => {
+                eprintln!("[vigilo] encryption failed, skipping hook event: {e}");
+                return Ok(());
+            }
+        };
 
     let git_dir = resolve_git_dir(&tool_name, &arguments, &cwd);
     let project = build_project(&git_dir).await;
@@ -528,6 +544,29 @@ mod tests {
         let payload = serde_json::json!({ "session_id": "my-session" });
         let id = claude_session_id(&payload);
         assert_ne!(id, Uuid::nil());
+    }
+
+    #[test]
+    fn claude_session_id_prefers_session_id_over_transcript_path() {
+        let payload = serde_json::json!({
+            "session_id": "stable-session",
+            "transcript_path": "transcripts/file1.jsonl"
+        });
+        let id_with_both = claude_session_id(&payload);
+
+        let payload_session_only = serde_json::json!({ "session_id": "stable-session" });
+        let id_session_only = claude_session_id(&payload_session_only);
+
+        // Should use session_id, not transcript_path
+        assert_eq!(id_with_both, id_session_only);
+
+        // Different transcript path should NOT change the session ID
+        let payload_diff_transcript = serde_json::json!({
+            "session_id": "stable-session",
+            "transcript_path": "transcripts/file2.jsonl"
+        });
+        let id_diff_transcript = claude_session_id(&payload_diff_transcript);
+        assert_eq!(id_with_both, id_diff_transcript);
     }
 
     #[test]

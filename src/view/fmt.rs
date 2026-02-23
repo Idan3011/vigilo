@@ -1,5 +1,5 @@
 use crate::{
-    crypto,
+    crypto::{self, EncryptionKey},
     models::{McpEvent, Risk},
 };
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -278,7 +278,7 @@ pub(crate) fn primary_arg(args: &serde_json::Value) -> serde_json::Value {
         .unwrap_or(serde_json::Value::String("—".to_string()))
 }
 
-pub(crate) fn maybe_decrypt(key: Option<&[u8; 32]>, value: &serde_json::Value) -> String {
+pub(crate) fn maybe_decrypt(key: Option<&EncryptionKey>, value: &serde_json::Value) -> String {
     let binding = value.to_string();
     let s = value.as_str().unwrap_or(&binding);
     if let Some(k) = key {
@@ -289,13 +289,34 @@ pub(crate) fn maybe_decrypt(key: Option<&[u8; 32]>, value: &serde_json::Value) -
     s.to_string()
 }
 
-pub(crate) fn fmt_arg(e: &McpEvent, key: Option<&[u8; 32]>, project_root: Option<&str>) -> String {
-    let raw = maybe_decrypt(key, &primary_arg(&e.arguments));
+pub(crate) fn fmt_arg(
+    e: &McpEvent,
+    key: Option<&EncryptionKey>,
+    project_root: Option<&str>,
+) -> String {
+    let args = decrypt_args(key, &e.arguments);
+    let primary = primary_arg(&args);
+    let raw = primary.as_str().unwrap_or("—").to_string();
     if raw.starts_with('/') || raw.contains('/') {
         short_path(&raw, project_root)
     } else {
         trunc(&raw, 50)
     }
+}
+
+fn decrypt_args(key: Option<&EncryptionKey>, args: &serde_json::Value) -> serde_json::Value {
+    if let Some(s) = args.as_str() {
+        if let Some(k) = key {
+            if crypto::is_encrypted(s) {
+                if let Some(decrypted) = crypto::decrypt(k, s) {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&decrypted) {
+                        return parsed;
+                    }
+                }
+            }
+        }
+    }
+    args.clone()
 }
 
 #[cfg(test)]

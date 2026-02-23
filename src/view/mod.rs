@@ -1,5 +1,5 @@
-mod counts;
-mod data;
+pub(crate) mod counts;
+pub(crate) mod data;
 pub(crate) mod fmt;
 mod search;
 mod session;

@@ -9,7 +9,7 @@ use crate::{
 };
 use std::collections::HashMap;
 
-pub(super) struct EventCounts {
+pub(crate) struct EventCounts {
     pub total: usize,
     pub reads: usize,
     pub writes: usize,
@@ -278,7 +278,10 @@ pub(super) fn print_error_chart(err_events: &[&McpEvent]) {
     }
 }
 
-pub(super) fn print_recent_errors(err_events: &[&McpEvent], key: Option<&[u8; 32]>) {
+pub(super) fn print_recent_errors(
+    err_events: &[&McpEvent],
+    key: Option<&crate::crypto::EncryptionKey>,
+) {
     let recent: Vec<&McpEvent> = err_events.iter().rev().take(10).copied().collect();
     println!();
     cprintln!("  {BOLD}recent errors{RESET} (last {})", recent.len());
@@ -306,7 +309,10 @@ pub(super) fn print_recent_errors(err_events: &[&McpEvent], key: Option<&[u8; 32
     }
 }
 
-pub(super) fn print_expanded_errors(err_events: &[&McpEvent], key: Option<&[u8; 32]>) {
+pub(super) fn print_expanded_errors(
+    err_events: &[&McpEvent],
+    key: Option<&crate::crypto::EncryptionKey>,
+) {
     println!();
     cprintln!("  {BOLD}all errors{RESET} ({})", err_events.len());
     cprintln!("  {DIM}──────────{RESET}");
@@ -353,7 +359,7 @@ pub(super) fn print_expanded_errors(err_events: &[&McpEvent], key: Option<&[u8; 
     }
 }
 
-pub(super) fn collect_active_projects(sessions: &[(String, Vec<McpEvent>)]) -> Vec<String> {
+pub(crate) fn collect_active_projects(sessions: &[(String, Vec<McpEvent>)]) -> Vec<String> {
     let mut active: Vec<String> = Vec::new();
     for (_, events) in sessions {
         if let Some(last) = events.last() {

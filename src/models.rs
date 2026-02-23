@@ -4,8 +4,12 @@ use std::path::PathBuf;
 use uuid::Uuid;
 
 /// Returns the user's home directory as a `PathBuf`.
+/// Prefers `HOME` env var (tests set it), falls back to `dirs::home_dir()`.
 pub fn home_dir() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".into()))
+    if let Ok(h) = std::env::var("HOME") {
+        return PathBuf::from(h);
+    }
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
 }
 
 /// Returns `~/.vigilo`.

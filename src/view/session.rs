@@ -85,7 +85,7 @@ fn format_project_line(p: &ProjectContext) -> String {
 
 fn print_session_events(
     events: &[McpEvent],
-    key: Option<&[u8; 32]>,
+    key: Option<&crate::crypto::EncryptionKey>,
     project_root: Option<&str>,
     risk_filter: Option<&str>,
     tool_filter: Option<&str>,
@@ -117,7 +117,11 @@ fn print_session_events(
     }
 }
 
-fn print_event_row(e: &McpEvent, key: Option<&[u8; 32]>, project_root: Option<&str>) {
+fn print_event_row(
+    e: &McpEvent,
+    key: Option<&crate::crypto::EncryptionKey>,
+    project_root: Option<&str>,
+) {
     let is_error = matches!(e.outcome, Outcome::Err { .. });
     let time = e.timestamp.get(11..19).unwrap_or("??:??:??");
     let risk_sym = risk_decorated(e.risk, is_error);
@@ -304,7 +308,7 @@ pub fn tail(ledger_path: &str, n: usize) -> Result<()> {
     Ok(())
 }
 
-fn print_tail_row(e: &McpEvent, sid: &str, key: Option<&[u8; 32]>) {
+fn print_tail_row(e: &McpEvent, sid: &str, key: Option<&crate::crypto::EncryptionKey>) {
     let is_error = matches!(e.outcome, Outcome::Err { .. });
     let badge = client_badge(&e.server);
     let date_time = e

@@ -26,6 +26,18 @@ atty = "0.2"
 fs2 = "0.4.3"
 notify = "7"
 libc = "0.2"
+zeroize = { version = "1", features = ["derive"] }
+dirs = "6"
+axum = { version = "0.8", features = ["json"], optional = true }
+tokio-stream = { version = "0.1", optional = true }
+async-stream = { version = "0.3", optional = true }
+tower-http = { version = "0.6", features = ["cors"], optional = true }
+include_dir = { version = "0.7", optional = true }
+mime_guess = { version = "2", optional = true }
+
+[features]
+default = ["dashboard"]
+dashboard = ["dep:axum", "dep:tower-http", "dep:include_dir", "dep:mime_guess", "dep:tokio-stream", "dep:async-stream"]
 
 [dev-dependencies]
 tempfile = "3"
