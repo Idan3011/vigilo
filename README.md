@@ -82,6 +82,24 @@ AI coding agents read files, write code, run commands, and commit to git on your
    20× composer-1.5        135K in · 26K out  · cache:5.6M  · $2.21
 ```
 
+### `vigilo dashboard`
+
+Launch a real-time web dashboard to visualize all agent activity.
+
+![vigilo dashboard](docs/dashboard.gif)
+
+```bash
+vigilo dashboard              # default port 7847
+vigilo dashboard --port 9000  # custom port
+```
+
+- **Session timeline** — calls, cost, and errors over time with interactive charts
+- **Live event feed** — every tool call appears in real-time via SSE, with filtering by server/risk/tool and sortable columns
+- **Session merging** — context-compressed conversation fragments are auto-merged into unified sessions
+- **Token breakdown** — input, output, cache read/write by model with cost estimates
+- **Cross-dimensional stats** — tools, files, models, and projects in one view
+- Binds to `127.0.0.1` only — never exposed to the network. Includes CORS, CSP, and host validation headers. If the port is in use, vigilo prompts for a random available port.
+
 ---
 
 ## How it works
@@ -94,7 +112,7 @@ Some tools are built into the agent and bypass MCP entirely (Claude Code's Read,
 
 **Nothing leaves your machine.** No telemetry, no phoning home, no accounts, no SaaS. The only exception is `vigilo cursor-usage`, which makes opt-in HTTPS requests to cursor.com to fetch your token usage — using your existing local Cursor credentials.
 
-**Encryption at rest is automatic.** On first run, vigilo generates an AES-256-GCM key at `~/.vigilo/encryption.key` and encrypts content (arguments, results) transparently. Metadata (tool name, risk level, timing, git context) is always plaintext so you can always see the shape of what happened. You can also provide your own key via `VIGILO_ENCRYPTION_KEY` env var.
+**Encryption at rest is automatic.** On first run, vigilo generates an AES-256-GCM key at `~/.vigilo/encryption.key` and encrypts content (arguments, results) transparently. The key is zeroized from memory on drop. Metadata (tool name, risk level, timing, git context) is always plaintext so you can always see the shape of what happened. You can also provide your own key via `VIGILO_ENCRYPTION_KEY` env var.
 
 ---
 
@@ -115,6 +133,31 @@ vigilo setup
 Auto-detects Claude Code and Cursor, configures MCP servers and hooks, optionally generates an encryption key, and saves everything to `~/.vigilo/config`.
 
 For manual setup, see [docs/manual-setup.md](docs/manual-setup.md).
+
+---
+
+## Commands
+
+```bash
+vigilo                        # MCP server mode (default, reads stdio)
+vigilo dashboard              # web dashboard on port 7847
+vigilo view                   # ledger grouped by session
+vigilo sessions               # one-line session list
+vigilo stats                  # aggregate stats across all sessions
+vigilo errors                 # errors grouped by tool
+vigilo tail                   # last 20 events (flat, chronological)
+vigilo diff --last 1          # file diffs from last session
+vigilo watch                  # live tail of incoming events
+vigilo cursor-usage           # Cursor token usage (last 30 days)
+vigilo export                 # dump all events as CSV
+vigilo summary                # today at a glance
+vigilo doctor                 # check configuration health
+vigilo setup                  # interactive setup wizard
+vigilo prune                  # delete old rotated ledger files
+vigilo generate-key           # generate AES-256 encryption key
+```
+
+Most commands accept `--since`, `--until`, `--last`, `--session`, `--risk`, `--tool`, and `--expand` flags. See [docs/commands.md](docs/commands.md) for full details.
 
 ---
 

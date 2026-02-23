@@ -31,9 +31,27 @@ src/
 │   ├── api.rs         HTTP fetch (summary, events, pagination)
 │   ├── cache.rs       CachedTokenEvent, cache I/O, aggregation
 │   └── display.rs     Token totals, print functions, formatting
+├── dashboard/
+│   ├── mod.rs         Axum HTTP server, router, port fallback, terminal banner
+│   ├── handlers.rs    API endpoints, session merging (summary, sessions, stats, events, errors, SSE)
+│   ├── types.rs       JSON response structs (Serialize)
+│   └── static_files.rs Embedded SPA serving via include_dir
 ├── setup.rs           Interactive setup wizard
 ├── git.rs             Async git helpers (root, name, branch, commit, dirty)
 └── crypto.rs          AES-256-GCM encryption/decryption, auto key generation
+```
+
+```
+dashboard/                 React + Vite + TypeScript SPA (compiled into binary)
+├── src/
+│   ├── App.tsx            Main layout: TopBar, Sidebar, panels, LiveFeed
+│   ├── types.ts           Shared API response interfaces
+│   ├── api/client.ts      Fetch wrappers for /api/* endpoints
+│   ├── hooks/useApi.ts    Generic data-fetching hook
+│   ├── hooks/useSSE.ts    Server-Sent Events live stream hook
+│   └── components/        TopBar, SessionSidebar, TimeSeriesPanel, etc.
+├── dist/                  Committed build output (no Node.js needed for cargo build)
+└── package.json
 ```
 
 ## Session sync

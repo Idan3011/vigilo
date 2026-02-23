@@ -131,6 +131,17 @@ vigilo doctor                             # check configuration and dependencies
 
 Validates ledger path, encryption key, config file, and Cursor database. Shows pass/fail/info for each check.
 
+## Dashboard
+
+```bash
+vigilo dashboard                          # launch web dashboard on port 7847
+vigilo dashboard --port 9000              # custom port
+```
+
+Opens a real-time web dashboard with session timeline, token breakdown, risk charts, model usage, and a live event feed. Sessions from the same conversation (e.g. after context compression) are automatically merged.
+
+If the default port is in use, vigilo will prompt to use an available port instead.
+
 ## Other
 
 ```bash
