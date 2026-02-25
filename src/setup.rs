@@ -249,7 +249,12 @@ fn setup_cursor_hooks() -> Result<()> {
     }
 
     let our_command = "vigilo hook";
-    for hook_type in ["beforeShellExecution", "afterFileEdit"] {
+    for hook_type in [
+        "beforeShellExecution",
+        "afterFileEdit",
+        "beforeReadFile",
+        "beforeMCPExecution",
+    ] {
         ensure_hook_entry(&mut config["hooks"], hook_type, our_command);
     }
 

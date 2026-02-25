@@ -61,7 +61,9 @@ Add to `~/.cursor/hooks.json`:
   "version": 1,
   "hooks": {
     "beforeShellExecution": [{ "command": "vigilo hook" }],
-    "afterFileEdit":        [{ "command": "vigilo hook" }]
+    "afterFileEdit":        [{ "command": "vigilo hook" }],
+    "beforeReadFile":       [{ "command": "vigilo hook" }],
+    "beforeMCPExecution":   [{ "command": "vigilo hook" }]
   }
 }
 ```
