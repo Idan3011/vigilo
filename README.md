@@ -91,6 +91,8 @@ Launch a real-time web dashboard to visualize all agent activity.
 
 ![vigilo dashboard](docs/dashboard.gif)
 
+![vigilo dashboard UI](docs/dashboard-ui.png)
+
 ```bash
 vigilo dashboard              # default port 7847
 vigilo dashboard --port 9000  # custom port
